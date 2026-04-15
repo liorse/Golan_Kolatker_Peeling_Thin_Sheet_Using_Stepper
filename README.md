@@ -33,14 +33,23 @@ This firmware:
 |---|---|
 | Microcontroller | Arduino Uno (ATmega328P) |
 | Stepper motor | NEMA 17 — rated 0.4 A |
-| Stepper driver | TB6600 |
+| Stepper driver | DM542T (V4.0) — Leadshine digital driver |
 | Power supply | 12 V, 1 A minimum |
 
-The Arduino and driver logic are both powered from the 12 V supply.
+The Arduino and driver are powered separately — the DM542T requires **24–48 V** for the motor supply (12 V minimum).
 
-### Driver Current Limit
+### Driver Configuration (DIP Switches)
 
-Set the TB6600 current-limit trim-pot so that the test-point on the board reads **2.3 V** while the driver is powered. This limits the motor current to its nominal 0.4 A rating.
+The DM542T uses DIP switches instead of a trim-pot:
+
+| Switches | Function | Recommendation |
+|---|---|---|
+| SW1–SW3 | Peak output current | Match to motor rated current |
+| SW4–SW6 | Microstep resolution | Match to firmware step counts |
+| SW7 | Standby current reduction | ON = 50 % current at rest (saves heat) |
+| SW8 | Pulse active edge | ON = rising edge (default) |
+
+Refer to the DM542T datasheet for the exact SW1–SW3 current table.
 
 ---
 
@@ -48,10 +57,10 @@ Set the TB6600 current-limit trim-pot so that the test-point on the board reads 
 
 | Arduino Pin | Signal | Connected To |
 |---|---|---|
-| 8 | `dirPinStepper` | TB6600 DIR input |
-| 9 | `stepPinStepper` | TB6600 PUL input |
-| 12 | `enablePinStepper` | TB6600 ENA input |
-| GND | — | Common ground (Arduino + driver) |
+| 8 | `dirPinStepper` | DM542T DIR- |
+| 9 | `stepPinStepper` | DM542T PUL- |
+| 12 | `enablePinStepper` | DM542T ENA- (active-low) |
+| GND | — | DM542T DIR+, PUL+, ENA+ tied to +5 V via 1 kΩ, or use differential mode |
 
 ---
 

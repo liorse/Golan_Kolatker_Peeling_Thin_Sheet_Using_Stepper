@@ -16,15 +16,19 @@
 // --------
 //   • Arduino Uno (ATmega328P)
 //   • NEMA 17 stepper motor (0.4 A rated)
-//   • TB6600 stepper driver
-//       – Current-limit trim-pot target: 2.3 V on the board test-point
-//   • Power supply: 12 V, 1 A minimum
+//   • DM542T (V4.0) stepper driver — Leadshine digital driver
+//       – Peak current set via DIP switches SW1–SW3
+//       – Microstepping resolution set via DIP switches SW4–SW6
+//       – ENA active-low; t1: ENA→first PUL ≥ 200 ms (datasheet Fig.15)
+//       – t2: DIR stable before PUL ≥ 5 µs; t3/t4: PUL high/low width ≥ 2.5 µs
+//       – Signal levels: HIGH > 3.5 V, LOW < 0.5 V — Arduino 5 V compatible directly
+//   • Power supply: 24–48 V recommended (min 12 V)
 //
 // PIN ASSIGNMENT
 // --------------
-//   Pin  8  — dirPinStepper    : TB6600 direction input
-//   Pin  9  — stepPinStepper   : TB6600 step pulse input
-//   Pin 12  — enablePinStepper : TB6600 enable input (managed by FastAccelStepper)
+//   Pin  8  — dirPinStepper    : DM542T DIR- input
+//   Pin  9  — stepPinStepper   : DM542T PUL- input
+//   Pin 12  — enablePinStepper : DM542T ENA- input (active-low; managed by FastAccelStepper)
 //
 // SOFTWARE DEPENDENCIES
 // ---------------------
@@ -65,9 +69,9 @@
 #include <AVRStepperPins.h>   // AVR pin-number constants for FastAccelStepper
 
 // --- Stepper driver signal pins -----------------------------------------------
-#define enablePinStepper  12  // TB6600 /EN pin; managed automatically by FastAccelStepper
-#define dirPinStepper      8  // TB6600 direction input
-#define stepPinStepper     9  // TB6600 step pulse input
+#define enablePinStepper  12  // DM542T ENA- pin (active-low); managed automatically by FastAccelStepper
+#define dirPinStepper      8  // DM542T DIR- input
+#define stepPinStepper     9  // DM542T PUL- input
 
 // --- FastAccelStepper objects -------------------------------------------------
 // 'engine' manages the hardware-timer resources; 'stepper' is the motor instance.
@@ -77,7 +81,7 @@ FastAccelStepper *stepper = NULL;
 // --- Motor travel positions (in microsteps) -----------------------------------
 int32_t POS_MIDDLE = 478085 / 2;  // Mid-travel (~239 042 steps)
 int32_t POS_TOP    = 478085;       // Full travel — top of peel stroke
-int32_t SPEED_MAX  = 30000;        // Max step rate in Hz (full-step mode: ~1 250 Hz)
+int32_t SPEED_MAX  = 100;        // Max step rate in Hz (full-step mode: ~1 250 Hz)
 
 // --- State machine -----------------------------------------------------------
 // State codes are transmitted in the JSON output so external software can track
@@ -113,6 +117,7 @@ void setup()
     stepper->setDirectionPin(dirPinStepper);
     stepper->setEnablePin(enablePinStepper);
     stepper->setAutoEnable(true);       // driver automatically enabled/disabled on motion
+    stepper->setDelayToEnable(250000);  // DM542T requires t1 > 200 ms from ENA- asserted to first PUL (datasheet Fig.15)
     stepper->setCurrentPosition(0);     // treat power-on position as zero
     stepper->setSpeedInHz(SPEED_MAX);   // 30 000 steps/s
     stepper->setAcceleration(10000000); // very high — near-instant ramp for this application
