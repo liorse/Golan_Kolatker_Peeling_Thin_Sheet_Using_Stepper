@@ -28,7 +28,7 @@
 // --------------
 //   Pin  8  — dirPinStepper    : DM542T DIR- input
 //   Pin  9  — stepPinStepper   : DM542T PUL- input
-//   Pin 12  — enablePinStepper : DM542T ENA- input (active-low; managed by FastAccelStepper)
+//   Pin 12  — enablePinStepper : DM542T ENA- input (active-low; driven manually)
 //
 // SOFTWARE DEPENDENCIES
 // ---------------------
@@ -69,7 +69,7 @@
 #include <AVRStepperPins.h>   // AVR pin-number constants for FastAccelStepper
 
 // --- Stepper driver signal pins -----------------------------------------------
-#define enablePinStepper  12  // DM542T ENA- pin (active-low); managed automatically by FastAccelStepper
+#define enablePinStepper  12  // DM542T ENA- pin (active-low); driven manually — HIGH = disabled, LOW = enabled
 #define dirPinStepper      8  // DM542T DIR- input
 #define stepPinStepper     9  // DM542T PUL- input
 
@@ -100,9 +100,12 @@ const unsigned long interval  = 100; // JSON status report interval (ms)
  *
  * Sequence:
  *   1. Opens the serial port at 115 200 baud for command input and JSON output.
- *   2. Initialises FastAccelStepper: connects to the step pin, sets direction
- *      pin, enable pin (auto-managed), initial position 0, max speed, and a
- *      very high acceleration so the motor ramps quickly.
+ *   2. Configures the ENA- pin as OUTPUT and starts with the driver disabled
+ *      (HIGH = disabled for active-low ENA-).
+ *   3. Initialises FastAccelStepper: connects to the step pin, sets direction
+ *      pin, initial position 0, max speed, and a very high acceleration.
+ *   4. Waits for the serial port to be ready (Leonardo/Micro compatibility —
+ *      harmless on Uno but kept for portability).
  *   3. Waits for the serial port to be ready (Leonardo/Micro compatibility —
  *      harmless on Uno but kept for portability).
  */
@@ -114,13 +117,13 @@ void setup()
   engine.init();
   stepper = engine.stepperConnectToPin(stepPinStepper);
   if (stepper) {
-    stepper->setDirectionPin(dirPinStepper);
-    stepper->setEnablePin(enablePinStepper);
-    stepper->setAutoEnable(true);       // driver automatically enabled/disabled on motion
-    stepper->setDelayToEnable(250000);  // DM542T requires t1 > 200 ms from ENA- asserted to first PUL (datasheet Fig.15)
-    stepper->setCurrentPosition(0);     // treat power-on position as zero
-    stepper->setSpeedInHz(SPEED_MAX);   // 30 000 steps/s
-    stepper->setAcceleration(10000000); // very high — near-instant ramp for this application
+    stepper->setDirectionPin(dirPinStepper, true, 40); // dirHighCountsUp=true; dir_change_delay_us=40 µs (≥ t2 per DM542T datasheet)
+    stepper->setEnablePin(enablePinStepper); // register ENA- pin so enableOutputs()/disableOutputs() control it
+    stepper->setAutoEnable(false);           // do NOT auto-assert ENA- on move; we call enableOutputs() manually
+    stepper->disableOutputs();               // start with driver disabled (ENA- HIGH)
+    stepper->setCurrentPosition(0);          // treat power-on position as zero
+    stepper->setSpeedInHz(SPEED_MAX);        // steps/s
+    stepper->setAcceleration(1000000);       // near-instant ramp for this application
   }
 
   // Wait for USB serial enumeration (no-op on Uno, needed on Leonardo/Micro)
@@ -148,6 +151,7 @@ void loop()
       case 's':  // STOP — abort any in-progress move immediately
         stepper->stopMove();
         stepper->forceStop();
+        stepper->disableOutputs(); // assert ENA- HIGH — driver disabled
         current_state = WAITING;
         break;
 
@@ -163,7 +167,10 @@ void loop()
         } else if (position > POS_TOP) {
           position = POS_TOP;  // clamp to maximum travel
         }
-        delay(100);            // brief settle before commanding move
+        // Assert ENA- LOW then wait t1 > 200 ms before first pulse
+        // (DM542T datasheet Fig.15) — setDelayToEnable() is unreliable on Uno.
+        stepper->enableOutputs(); // assert ENA- LOW — driver enabled
+        delay(500);
         stepper->moveTo(position);
         current_state = MOVING;
         break;
@@ -174,8 +181,12 @@ void loop()
   switch (current_state) {
 
     case MOVING:
-      // Transition to WAITING once the target step count is reached
-      if (stepper->getCurrentPosition() == stepper->targetPos()) {
+      // Disable driver and transition to WAITING only once FastAccelStepper has
+      // finished generating pulses (isRunning() is false after full deceleration).
+      // Using getCurrentPosition()==targetPos() is unreliable — it can fire before
+      // the hardware timer ISR has even started the move.
+      if (!stepper->isRunning()) {
+        stepper->disableOutputs(); // assert ENA- HIGH — driver disabled
         current_state = WAITING;
       }
       break;
