@@ -123,7 +123,7 @@ void setup()
     stepper->disableOutputs();               // start with driver disabled (ENA- HIGH)
     stepper->setCurrentPosition(0);          // treat power-on position as zero
     stepper->setSpeedInHz(SPEED_MAX);        // steps/s
-    stepper->setAcceleration(1000000);       // near-instant ramp for this application
+    stepper->setAcceleration(2147483647); // effectively no acceleration
   }
 
   // Wait for USB serial enumeration (no-op on Uno, needed on Leonardo/Micro)
