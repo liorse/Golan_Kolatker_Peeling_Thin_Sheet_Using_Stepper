@@ -59,8 +59,9 @@
 // SERIAL OUTPUT FORMAT
 // --------------------
 //   Every 100 ms the firmware emits a JSON object:
-//       {"state":<int>,"position":<int32>}
+//       {"state":<int>,"position":<int32>,"speed":<int32>}
 //   State codes: INIT=1, MOVING=2, WAITING=3
+//   speed: current configured max speed in Hz (SPEED_MAX)
 // =============================================================================
 
 // FastAccelStepper uses hardware timers (Timer1/Timer2) for precise step
@@ -197,7 +198,7 @@ void loop()
   }
 
   // ---- Periodic JSON status report (every 100 ms) --------------------------
-  // Format: {"state":<1-3>,"position":<steps>}
+  // Format: {"state":<1-3>,"position":<steps>,"speed":<Hz>}
   // State codes: INIT=1  MOVING=2  WAITING=3
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= interval) {
@@ -206,6 +207,8 @@ void loop()
     Serial.print(current_state);
     Serial.print(",\"position\":");
     Serial.print(stepper->getCurrentPosition());
+    Serial.print(",\"speed\":");
+    Serial.print(SPEED_MAX);
     Serial.println("}");
   }
 
