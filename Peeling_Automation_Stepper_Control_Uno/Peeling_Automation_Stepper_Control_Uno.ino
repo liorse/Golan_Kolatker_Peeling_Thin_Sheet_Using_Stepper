@@ -1,9 +1,9 @@
 // =============================================================================
-// Project   : Peeling Thin Sheet Using Stepper Motor — Arduino Uno Controller
+// Project   : Peeling Thin Sheet Using Stepper Motor — Raspberry Pi Pico Controller
 // File      : Peeling_Automation_Stepper_Control_Uno.ino
 // Author    : Lior Segev
-// Version   : 2.0.0
-// Date      : April 15, 2026
+// Version   : 3.0.0
+// Date      : April 30, 2026
 // =============================================================================
 //
 // OVERVIEW
@@ -14,32 +14,33 @@
 //
 // HARDWARE
 // --------
-//   • Arduino Uno (ATmega328P)
+//   • Raspberry Pi Pico (RP2040)
 //   • NEMA 17 stepper motor (0.4 A rated)
 //   • DM542T (V4.0) stepper driver — Leadshine digital driver
 //       – Peak current set via DIP switches SW1–SW3
 //       – Microstepping resolution set via DIP switches SW4–SW6
 //       – ENA active-low; t1: ENA→first PUL ≥ 200 ms (datasheet Fig.15)
 //       – t2: DIR stable before PUL ≥ 5 µs; t3/t4: PUL high/low width ≥ 2.5 µs
-//       – Signal levels: HIGH > 3.5 V, LOW < 0.5 V — Arduino 5 V compatible directly
+//       – Signal levels: HIGH > 3.5 V, LOW < 0.5 V — use a level shifter or
+//         voltage divider as Pico GPIO is 3.3 V; DM542T minimum HIGH is 3.5 V
 //   • Power supply: 24–48 V recommended (min 12 V)
 //
-// PIN ASSIGNMENT
-// --------------
-//   Pin  8  — dirPinStepper    : DM542T DIR- input
-//   Pin  9  — stepPinStepper   : DM542T PUL- input
-//   Pin 12  — enablePinStepper : DM542T ENA- input (active-low; driven manually)
+// PIN ASSIGNMENT  (Pico GPIO numbers)
+// ------------------------------------
+//   GPIO  8  — dirPinStepper    : DM542T DIR- input
+//   GPIO  5  — stepPinStepper   : DM542T PUL- input
+//   GPIO 12  — enablePinStepper : DM542T ENA- input (active-low; driven manually)
 //
 // SOFTWARE DEPENDENCIES
 // ---------------------
-//   • FastAccelStepper — hardware-timer-based step generation for ATmega328P.
-//   • AVRStepperPins   — pin constant definitions for FastAccelStepper on AVR.
+//   • FastAccelStepper — PIO-based step generation for RP2040.
+//     (Board support: arduino-pico by Earle Philhower)
 //
 // MOTOR POSITION CONSTANTS
 // ------------------------
 //   POS_MIDDLE =   239 042 steps  — mid-travel position (~POS_TOP / 2)
 //   POS_TOP    =   478 085 steps  — full-travel top position
-//   SPEED_MAX  =    30 000 Hz     — maximum step rate (full-step mode: ~1 250 Hz)
+//   SPEED_MAX  =    10 000 Hz     — default step rate; tune via 'v' command
 //
 // STATE MACHINE
 // -------------
@@ -64,15 +65,14 @@
 //   speed: current configured max speed in Hz (SPEED_MAX)
 // =============================================================================
 
-// FastAccelStepper uses hardware timers (Timer1/Timer2) for precise step
-// generation, allowing much higher step rates than a software AccelStepper.
+// FastAccelStepper uses PIO state machines on RP2040 for precise step
+// generation — any GPIO pin can be used as the step output.
 #include <FastAccelStepper.h>
-#include <AVRStepperPins.h>   // AVR pin-number constants for FastAccelStepper
 
 // --- Stepper driver signal pins -----------------------------------------------
 #define enablePinStepper  12  // DM542T ENA- pin (active-low); driven manually — HIGH = disabled, LOW = enabled
 #define dirPinStepper      8  // DM542T DIR- input
-#define stepPinStepper     9  // DM542T PUL- input
+#define stepPinStepper     5  // DM542T PUL- input used to be 9 in arduino
 
 // --- FastAccelStepper objects -------------------------------------------------
 // 'engine' manages the hardware-timer resources; 'stepper' is the motor instance.
@@ -82,7 +82,7 @@ FastAccelStepper *stepper = NULL;
 // --- Motor travel positions (in microsteps) -----------------------------------
 int32_t POS_MIDDLE = 478085 / 2;  // Mid-travel (~239 042 steps)
 int32_t POS_TOP    = 478085;       // Full travel — top of peel stroke
-int32_t SPEED_MAX  = 100;        // Max step rate in Hz (full-step mode: ~1 250 Hz)
+int32_t SPEED_MAX  = 100;      // Default step rate in Hz; tune via 'v' command
 
 // --- State machine -----------------------------------------------------------
 // State codes are transmitted in the JSON output so external software can track
@@ -105,16 +105,13 @@ const unsigned long interval  = 100; // JSON status report interval (ms)
  *      (HIGH = disabled for active-low ENA-).
  *   3. Initialises FastAccelStepper: connects to the step pin, sets direction
  *      pin, initial position 0, max speed, and a very high acceleration.
- *   4. Waits for the serial port to be ready (Leonardo/Micro compatibility —
- *      harmless on Uno but kept for portability).
- *   3. Waits for the serial port to be ready (Leonardo/Micro compatibility —
- *      harmless on Uno but kept for portability).
+ *   4. Waits for the serial port to be ready (USB CDC enumeration on Pico).
  */
 void setup()
 {
   Serial.begin(115200);
 
-  // FastAccelStepper setup: uses Timer1/Timer2 for hardware step generation
+  // FastAccelStepper setup: uses PIO state machines on RP2040 for step generation
   engine.init();
   stepper = engine.stepperConnectToPin(stepPinStepper);
   if (stepper) {
@@ -127,7 +124,7 @@ void setup()
     stepper->setAcceleration(2147483647); // effectively no acceleration
   }
 
-  // Wait for USB serial enumeration (no-op on Uno, needed on Leonardo/Micro)
+  // Wait for USB CDC serial enumeration
   while (!Serial) {
     delay(10);
   }
@@ -169,7 +166,7 @@ void loop()
           position = POS_TOP;  // clamp to maximum travel
         }
         // Assert ENA- LOW then wait t1 > 200 ms before first pulse
-        // (DM542T datasheet Fig.15) — setDelayToEnable() is unreliable on Uno.
+        // (DM542T datasheet Fig.15)
         stepper->enableOutputs(); // assert ENA- LOW — driver enabled
         delay(500);
         stepper->moveTo(position);
