@@ -70,8 +70,8 @@
 #include <FastAccelStepper.h>
 
 // --- Stepper driver signal pins -----------------------------------------------
-#define enablePinStepper  12  // DM542T ENA- pin (active-low); driven manually — HIGH = disabled, LOW = enabled
-#define dirPinStepper      8  // DM542T DIR- input
+#define enablePinStepper   3  // DM542T ENA- pin (active-low); driven manually — HIGH = disabled, LOW = enabled
+#define dirPinStepper      4  // DM542T DIR- input
 #define stepPinStepper     5  // DM542T PUL- input used to be 9 in arduino
 
 // --- FastAccelStepper objects -------------------------------------------------
