@@ -314,7 +314,7 @@ void startPeeling() {
 void startHoming() {
   appState = HOMING;
   enableMotor();
-  stepper->setSpeedInHz(100);
+  stepper->setSpeedInHz(CAL_SPEED_HZ);
   stepper->runBackward();
 }
 
