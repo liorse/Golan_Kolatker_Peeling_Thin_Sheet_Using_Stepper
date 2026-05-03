@@ -457,87 +457,91 @@ void clearContent() {
 // Run screen
 // =============================================================================
 void updateRunContent() {
+  // All data rows: label(4) + value(%7) + unit(4) = 15 chars = 180 px from x=6
   char    buf[32];
   int32_t pos_steps   = stepper->getCurrentPosition();
   float   pos_um      = stepsToUm(pos_steps);
-  float   actual_hz   = stepper->getCurrentSpeedInMilliHz() / 1000.0f;
+  float   actual_hz   = fabsf(stepper->getCurrentSpeedInMilliHz() / 1000.0f);
   float   actual_um_s = actual_hz * MICRONS_PER_STEP * cosAngle();
   float   dist_xa_um  = stepsToUm(dist_xa_steps);
 
-  // ---- State label ----
-  const char *stateStr = "IDLE    ";
+  // ---- State label (centered by exact char count) ----
+  const char *stateStr = "IDLE";
   uint16_t    stateCol = ST77XX_GREEN;
   switch (appState) {
-    case MOVING:          stateStr = "MOVING  "; stateCol = ST77XX_YELLOW; break;
-    case MOVING_TO_START: stateStr = "TO START"; stateCol = ST77XX_YELLOW; break;
-    case PEELING:         stateStr = "PEELING "; stateCol = ST77XX_YELLOW; break;
-    case HOMING:          stateStr = "HOMING  "; stateCol = ST77XX_CYAN;   break;
-    case CAL_HOMING:      stateStr = "CAL HOME"; stateCol = ST77XX_CYAN;   break;
-    case CAL_RUNNING:     stateStr = "CAL RUN "; stateCol = ST77XX_CYAN;   break;
+    case MOVING:          stateStr = "MOVING";    stateCol = ST77XX_YELLOW; break;
+    case MOVING_TO_START: stateStr = "TO START";  stateCol = ST77XX_YELLOW; break;
+    case PEELING:         stateStr = "PEELING";   stateCol = ST77XX_YELLOW; break;
+    case HOMING:          stateStr = "HOMING";    stateCol = ST77XX_CYAN;   break;
+    case CAL_HOMING:      stateStr = "CAL HOME";  stateCol = ST77XX_CYAN;   break;
+    case CAL_RUNNING:     stateStr = "CAL RUN";   stateCol = ST77XX_CYAN;   break;
     default: break;
   }
+  tft.fillRect(0, STATE_Y, SCREEN_W, 16, ST77XX_BLACK);
   tft.setTextSize(2);
   tft.setTextColor(stateCol, ST77XX_BLACK);
-  tft.setCursor((SCREEN_W - 8 * 12) / 2, STATE_Y);  // 8 chars × 12 px = 96 px
+  tft.setCursor((SCREEN_W - (int16_t)strlen(stateStr) * 12) / 2, STATE_Y);
   tft.print(stateStr);
 
-  // ---- Position (or warning) ----
   tft.setTextSize(2);
+
+  // ---- Position (or warning) ----
+  // "POS:" cyan + "%7.1f" white + "um  " cyan = 4+7+4 = 15 chars
   tft.setCursor(6, POS_Y);
   if (millis() < warningUntil) {
     tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
-    tft.print("CAL FIRST!     ");
+    tft.print("!CAL FIRST!    ");   // 15 chars
   } else {
     tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
     tft.print("POS:");
     tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    snprintf(buf, sizeof(buf), "%-8.1f", pos_um);
+    snprintf(buf, sizeof(buf), "%7.1f", pos_um);
     tft.print(buf);
     tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-    tft.print("um");
+    tft.print("um  ");
   }
 
-  tft.setTextSize(2);   // all body lines at textSize 2 from here down
-
-  // ---- Set speed ----
+  // ---- Set speed — "SET:%7.1fum/s" = 4+7+4 = 15 chars ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
   tft.setCursor(6, SETSPD_Y);
   snprintf(buf, sizeof(buf), "SET:%7.1fum/s", speed_um_s);
   tft.print(buf);
 
-  // ---- Run speed ----
+  // ---- Run speed — "RUN:%7.1fum/s" = 4+7+4 = 15 chars ----
   tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   tft.setCursor(6, RUNSPD_Y);
   snprintf(buf, sizeof(buf), "RUN:%7.1fum/s", actual_um_s);
   tft.print(buf);
 
-  // ---- Angle ----
+  // ---- Angle — "ANG:%7d deg" = 4+7+4 = 15 chars ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
   tft.setCursor(6, ANGLE_Y);
-  snprintf(buf, sizeof(buf), "ANG:%3d deg   ", angle_deg);
+  snprintf(buf, sizeof(buf), "ANG:%7d deg", angle_deg);
   tft.print(buf);
 
-  // ---- Time to end ----
+  // ---- Time to end — "END:%7.1f s  " or "END:     -- s  " = 15 chars ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
   tft.setCursor(6, TOEND_Y);
   if (appState == PEELING && speed_um_s > 0.0f && pos_um < dist_xa_um) {
     float t = (dist_xa_um - pos_um) / speed_um_s;
     snprintf(buf, sizeof(buf), "END:%7.1f s  ", t);
   } else {
-    snprintf(buf, sizeof(buf), "END:     --   ");
+    snprintf(buf, sizeof(buf), "END:     -- s  ");
   }
   tft.print(buf);
 
-  // ---- Peel elapsed time ----
+  // ---- Peel elapsed time — "PLT:%7s    " or "PLT:     --    " = 15 chars ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
   tft.setCursor(6, PEELT_Y);
   if (appState == PEELING) {
     unsigned long elapsed = millis() - peel_start_ms;
-    int s = (int)((elapsed / 1000UL) % 60);
-    int m = (int) (elapsed / 60000UL);
-    snprintf(buf, sizeof(buf), "PLT:%02d:%02d     ", m, s);
+    int sec = (int)((elapsed / 1000UL) % 60);
+    int mn  = (int) (elapsed / 60000UL);
+    char ts[8];
+    snprintf(ts, sizeof(ts), "%02d:%02d", mn, sec);
+    snprintf(buf, sizeof(buf), "PLT:%7s    ", ts);
   } else {
-    snprintf(buf, sizeof(buf), "PLT:    --    ");
+    snprintf(buf, sizeof(buf), "PLT:     --    ");
   }
   tft.print(buf);
 
