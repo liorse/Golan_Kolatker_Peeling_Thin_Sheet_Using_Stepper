@@ -186,8 +186,9 @@ unsigned long previousMillis = 0;
 const unsigned long HEARTBEAT_MS = 100;
 
 // ---- Screen mode tracking (for clean transitions) ---------------------------
-bool inSettingsScreen = false;
-bool settingsDirty    = true;
+bool inSettingsScreen    = false;
+bool settingsDirty       = true;
+bool justEnteredSettings = false;
 
 
 // =============================================================================
@@ -353,9 +354,10 @@ void onButtonPress(int idx) {
         }
       } else if (idx == IDX_B) {
         if (stepper->getCurrentPosition() == 0) {
-          appState      = SETTINGS;
-          settingsField = FIELD_ANGLE;
-          settingsDirty = true;
+          appState             = SETTINGS;
+          settingsField        = FIELD_ANGLE;
+          settingsDirty        = true;
+          justEnteredSettings  = true;
         } else {
           startHoming();
         }
@@ -388,7 +390,11 @@ void onButtonPress(int idx) {
 
 void onButtonRelease(int idx) {
   if (appState == SETTINGS && idx == IDX_B && !btnLongFired[IDX_B]) {
-    cycleSettingsField();
+    if (justEnteredSettings) {
+      justEnteredSettings = false;  // swallow the release that opened settings
+    } else {
+      cycleSettingsField();
+    }
   }
 }
 
@@ -541,18 +547,41 @@ void updateRunContent() {
   }
   tft.print(buf);
 
-  // ---- Peel elapsed time — "PLT:%7s    " or "PLT:     --    " = 15 chars ----
+  // ---- Peel elapsed time — value centered in 11-char field after "PLT:" ----
+  // Formats: MM:SS | HH:MM:SS | Xd HH:MM:SS (≤9d) | XXd HH:MM (≥10d)
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
   tft.setCursor(6, PEELT_Y);
-  if (appState == PEELING) {
-    unsigned long elapsed = millis() - peel_start_ms;
-    int sec = (int)((elapsed / 1000UL) % 60);
-    int mn  = (int) (elapsed / 60000UL);
-    char ts[8];
-    snprintf(ts, sizeof(ts), "%02d:%02d", mn, sec);
-    snprintf(buf, sizeof(buf), "PLT:%7s    ", ts);
-  } else {
-    snprintf(buf, sizeof(buf), "PLT:     --    ");
+  {
+    char ts[14];
+    if (appState == PEELING) {
+      unsigned long total_s = (millis() - peel_start_ms) / 1000UL;
+      int sec   = (int)(total_s % 60);
+      int tot_m = (int)(total_s / 60);
+      int mn    = tot_m % 60;
+      int hr    = (tot_m / 60) % 24;
+      int days  = tot_m / 1440;
+      if (days >= 10) {
+        snprintf(ts, sizeof(ts), "%dd %02d:%02d",      days, hr, mn);
+      } else if (days >= 1) {
+        snprintf(ts, sizeof(ts), "%dd %02d:%02d:%02d", days, hr, mn, sec);
+      } else if (hr >= 1) {
+        snprintf(ts, sizeof(ts), "%02d:%02d:%02d",     hr, mn, sec);
+      } else {
+        snprintf(ts, sizeof(ts), "%02d:%02d",          mn, sec);
+      }
+    } else {
+      snprintf(ts, sizeof(ts), "--");
+    }
+    // Center ts within the 11-char value field
+    int   tslen = strlen(ts);
+    int   lpad  = (11 - tslen) / 2;
+    char  cb[16];
+    int   ci = 0;
+    for (int j = 0; j < lpad; j++)   cb[ci++] = ' ';
+    for (int j = 0; j < tslen; j++)  cb[ci++] = ts[j];
+    while (ci < 11)                   cb[ci++] = ' ';
+    cb[ci] = '\0';
+    snprintf(buf, sizeof(buf), "PLT:%s", cb);
   }
   tft.print(buf);
 
@@ -602,7 +631,7 @@ void updateSettingsContent() {
         case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg   ", angle_deg);         break;
         case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s  ", speed_um_s);         break;
         case FIELD_START: snprintf(vbuf, sizeof(vbuf), "ST: %.0fum    ", start_pos_um);        break;
-        case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL: press Y  ");                      break;
+        case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL: press CAL");                      break;
       }
       tft.print(vbuf);
     } else {
@@ -613,7 +642,7 @@ void updateSettingsContent() {
         case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);              break;
         case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);          break;
         case FIELD_START: snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um);        break;
-        case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL (press Y)");                       break;
+        case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");                     break;
       }
       tft.print(vbuf);
     }
