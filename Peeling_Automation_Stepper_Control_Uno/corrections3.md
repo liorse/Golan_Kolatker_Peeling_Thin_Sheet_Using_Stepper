@@ -1,0 +1,1 @@
+How do I enter the settings options, where I can set the speed, starting position etc.
