@@ -477,11 +477,22 @@ void updateRunContent() {
     case CAL_RUNNING:     stateStr = "CAL RUN";   stateCol = ST77XX_CYAN;   break;
     default: break;
   }
-  tft.fillRect(0, STATE_Y, SCREEN_W, 16, ST77XX_BLACK);
-  tft.setTextSize(2);
-  tft.setTextColor(stateCol, ST77XX_BLACK);
-  tft.setCursor((SCREEN_W - (int16_t)strlen(stateStr) * 12) / 2, STATE_Y);
-  tft.print(stateStr);
+  // Pad to 20 chars (full screen width at textSize 2) so background overwrites old text
+  // without a separate fillRect erase step — prevents flicker.
+  {
+    char sb[22];
+    int  len = strlen(stateStr);
+    int  lp  = (20 - len) / 2;
+    int  i   = 0;
+    while (i < lp)        sb[i++] = ' ';
+    for (int j = 0; j < len; j++) sb[i++] = stateStr[j];
+    while (i < 20)        sb[i++] = ' ';
+    sb[i] = '\0';
+    tft.setTextSize(2);
+    tft.setTextColor(stateCol, ST77XX_BLACK);
+    tft.setCursor(0, STATE_Y);
+    tft.print(sb);
+  }
 
   tft.setTextSize(2);
 
