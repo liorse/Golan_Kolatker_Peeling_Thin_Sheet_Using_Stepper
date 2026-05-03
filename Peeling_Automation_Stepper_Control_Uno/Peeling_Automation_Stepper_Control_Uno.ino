@@ -503,11 +503,11 @@ void updateRunContent() {
   tft.setTextSize(2);
 
   // ---- Position (or warning) ----
-  // "POS:" cyan + "%7.1f" white + "um  " cyan = 4+7+4 = 15 chars
+  // 19 chars from x=6 → covers x=6..234, clearing any stale content to the right
   tft.setCursor(6, POS_Y);
   if (millis() < warningUntil) {
     tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
-    tft.print("!CAL FIRST!    ");   // 15 chars
+    tft.print("!CAL FIRST!        ");   // 19 chars
   } else {
     tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
     tft.print("POS:");
@@ -515,7 +515,7 @@ void updateRunContent() {
     snprintf(buf, sizeof(buf), "%7.1f", pos_um);
     tft.print(buf);
     tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-    tft.print("um  ");
+    tft.print("um      ");              // "um" + 6 spaces = 8 chars → total 4+7+8=19 ✓
   }
 
   // ---- Set speed — "SET:%7.1fum/s" = 4+7+4 = 15 chars ----
@@ -538,7 +538,7 @@ void updateRunContent() {
 
   // ---- Time to end — "END:%7.1f s  " or "END:     -- s  " = 15 chars ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  tft.setCursor(6, TOEND_Y);
+  tft.setCursor(6, PEELT_Y);
   if (appState == PEELING && speed_um_s > 0.0f && pos_um < dist_xa_um) {
     float t = (dist_xa_um - pos_um) / speed_um_s;
     snprintf(buf, sizeof(buf), "END:%7.1f s  ", t);
@@ -550,7 +550,7 @@ void updateRunContent() {
   // ---- Peel elapsed time — value centered in 11-char field after "PLT:" ----
   // Formats: MM:SS | HH:MM:SS | Xd HH:MM:SS (≤9d) | XXd HH:MM (≥10d)
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  tft.setCursor(6, PEELT_Y);
+  tft.setCursor(6, TOEND_Y);
   {
     char ts[14];
     if (appState == PEELING) {
