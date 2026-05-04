@@ -38,9 +38,9 @@
 //
 // UNIT CONVERSION
 // ---------------
-//   1 step = 0.9375 µm × cos(angle_deg)
-//   distance_µm  = steps    × 0.9375 × cos(angle_rad)
-//   speed_µm_s   = steps/s  × 0.9375 × cos(angle_rad)
+//   1 step = 2 × 0.9375 µm × cos(angle_deg / 2)
+//   distance_µm  = steps    × 2 × 0.9375 × cos(angle_deg/2 in rad)
+//   speed_µm_s   = steps/s  × 2 × 0.9375 × cos(angle_deg/2 in rad)
 //
 // STATE MACHINE
 // -------------
@@ -195,25 +195,25 @@ int  prevSettingsFieldIdx = -1;  // -1 = first draw needed
 // =============================================================================
 // Unit conversion
 // =============================================================================
-float cosAngle() {
-  return cosf((float)angle_deg * (float)M_PI / 180.0f);
+float stepToUmFactor() {
+  return 2.0f * cosf((float)angle_deg * (float)M_PI / 360.0f);
 }
 
 float stepsToUm(int32_t steps) {
-  return (float)steps * MICRONS_PER_STEP * cosAngle();
+  return (float)steps * MICRONS_PER_STEP * stepToUmFactor();
 }
 
 int32_t umToSteps(float um) {
-  float d = MICRONS_PER_STEP * cosAngle();
+  float d = MICRONS_PER_STEP * stepToUmFactor();
   if (d < 1e-4f) d = 1e-4f;
   return (int32_t)(um / d);
 }
 
-int32_t speedUmToHz(float um_s) {
-  float d = MICRONS_PER_STEP * cosAngle();
+uint32_t speedUmToMilliHz(float um_s) {
+  float d = MICRONS_PER_STEP * stepToUmFactor();
   if (d < 1e-4f) d = 1e-4f;
-  int32_t hz = (int32_t)(um_s / d);
-  return hz < 1 ? 1 : hz;
+  uint32_t mhz = (uint32_t)(um_s / d * 1000.0f);
+  return mhz < 1 ? 1 : mhz;
 }
 
 
@@ -307,7 +307,7 @@ void startMoveToStart() {
 
 void startPeeling() {
   // Motor stays enabled from startMoveToStart — no re-enable needed.
-  stepper->setSpeedInHz(speedUmToHz(speed_um_s));
+  stepper->setSpeedInMilliHz(speedUmToMilliHz(speed_um_s));
   stepper->moveTo(dist_xa_steps);
   peel_start_ms = millis();
   appState = PEELING;
@@ -469,7 +469,7 @@ void updateRunContent() {
   int32_t pos_steps   = stepper->getCurrentPosition();
   float   pos_um      = stepsToUm(pos_steps);
   float   actual_hz   = fabsf(stepper->getCurrentSpeedInMilliHz() / 1000.0f);
-  float   actual_um_s = actual_hz * MICRONS_PER_STEP * cosAngle();
+  float   actual_um_s = actual_hz * MICRONS_PER_STEP * stepToUmFactor();
   float   dist_xa_um  = stepsToUm(dist_xa_steps);
 
   // ---- State label (centered by exact char count) ----
@@ -721,7 +721,7 @@ void setup() {
     stepper->setAutoEnable(false);
     stepper->disableOutputs();
     stepper->setCurrentPosition(0);
-    stepper->setSpeedInHz(speedUmToHz(speed_um_s));
+    stepper->setSpeedInMilliHz(speedUmToMilliHz(speed_um_s));
     stepper->setAcceleration(2147483647);
   }
 
@@ -897,7 +897,7 @@ void loop() {
     // Serial JSON heartbeat
     float pos_um      = stepsToUm(stepper->getCurrentPosition());
     float actual_hz   = stepper->getCurrentSpeedInMilliHz() / 1000.0f;
-    float actual_um_s = actual_hz * MICRONS_PER_STEP * cosAngle();
+    float actual_um_s = actual_hz * MICRONS_PER_STEP * stepToUmFactor();
     int   stateCode   = (appState == IDLE || appState == SETTINGS) ? 3 : 2;
 
     Serial.print("{\"state\":");   Serial.print(stateCode);
