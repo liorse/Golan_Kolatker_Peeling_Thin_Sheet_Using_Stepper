@@ -88,7 +88,7 @@
 #define SCREEN_W   240
 #define SCREEN_H   240
 
-#define BTN_W       28
+#define BTN_W       52
 #define BTN_H       28
 #define BTN_LEFT_X   3
 #define BTN_RIGHT_X (SCREEN_W - BTN_W - 3)
@@ -189,6 +189,7 @@ const unsigned long HEARTBEAT_MS = 100;
 bool inSettingsScreen    = false;
 bool settingsDirty       = true;
 bool justEnteredSettings = false;
+int  prevSettingsFieldIdx = -1;  // -1 = first draw needed
 
 
 // =============================================================================
@@ -299,7 +300,7 @@ void abortAndIdle() {
 void startMoveToStart() {
   appState = MOVING_TO_START;
   enableMotor();
-  stepper->setSpeedInHz(100);
+  stepper->setSpeedInHz(CAL_SPEED_HZ);
   stepper->moveTo(umToSteps(start_pos_um));
   startPeelAt = 0;
 }
@@ -422,10 +423,10 @@ void drawButtonBox(int16_t x, int16_t y, const char *label, bool pressed) {
   uint16_t fg = pressed ? ST77XX_BLACK : ST77XX_CYAN;
   tft.fillRoundRect(x, y, BTN_W, BTN_H, 4, bg);
   tft.drawRoundRect(x, y, BTN_W, BTN_H, 4, ST77XX_CYAN);
-  tft.setTextSize(1);
+  tft.setTextSize(2);
   tft.setTextColor(fg, bg);
   int len = strlen(label);
-  tft.setCursor(x + (BTN_W - len * 6) / 2, y + (BTN_H - 8) / 2);
+  tft.setCursor(x + (BTN_W - len * 12) / 2, y + (BTN_H - 16) / 2);
   tft.print(label);
 }
 
@@ -601,64 +602,73 @@ void updateRunContent() {
 // =============================================================================
 // Settings screen
 // =============================================================================
+void drawSettingsField(int idx, bool active) {
+  const int fieldY[4] = { 72, 104, 128, 152 };
+  tft.fillRect(0, fieldY[idx], SCREEN_W, 20, ST77XX_BLACK);
+  char vbuf[24];
+  if (active) {
+    tft.setTextSize(2);
+    tft.setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+    tft.setCursor(6, fieldY[idx]);
+    tft.print(">");
+    tft.setCursor(22, fieldY[idx]);
+    switch (idx) {
+      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg   ", angle_deg);   break;
+      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s  ", speed_um_s);  break;
+      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "ST: %.0fum    ", start_pos_um); break;
+      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL: press CAL");               break;
+    }
+    tft.print(vbuf);
+  } else {
+    tft.setTextSize(1);
+    tft.setTextColor(0x8410 /* mid-gray */, ST77XX_BLACK);
+    tft.setCursor(16, fieldY[idx]);
+    switch (idx) {
+      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);       break;
+      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);   break;
+      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um); break;
+      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");              break;
+    }
+    tft.print(vbuf);
+  }
+}
+
 void updateSettingsContent() {
   if (!settingsDirty) return;
   settingsDirty = false;
 
-  tft.fillRect(0, DIV_TOP_Y + 1, SCREEN_W, DIV_BOT_Y - DIV_TOP_Y - 1, ST77XX_BLACK);
+  int  curIdx    = (int)settingsField;
+  bool firstDraw = (prevSettingsFieldIdx < 0);
 
-  // Title
-  tft.setTextSize(2);
-  tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-  tft.setCursor((SCREEN_W - 8 * 12) / 2, STATE_Y);
-  tft.print("SETTINGS");
-
-  // Field list — active field at textSize 2, others at textSize 1
-  // Fixed y positions per field to avoid shifting layout
-  const int fieldY[4] = { 72, 104, 128, 152 };
-  float dist_xa_um = stepsToUm(dist_xa_steps);
-  char  vbuf[24];
-
-  for (int i = 0; i < 4; i++) {
-    bool active = (i == (int)settingsField);
-    if (active) {
-      tft.setTextSize(2);
-      tft.setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-      tft.setCursor(6, fieldY[i]);
-      tft.print(">");
-      tft.setCursor(22, fieldY[i]);
-      switch (i) {
-        case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg   ", angle_deg);         break;
-        case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s  ", speed_um_s);         break;
-        case FIELD_START: snprintf(vbuf, sizeof(vbuf), "ST: %.0fum    ", start_pos_um);        break;
-        case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL: press CAL");                      break;
-      }
-      tft.print(vbuf);
+  if (firstDraw) {
+    // Full initial draw: title, all fields, cal status
+    tft.setTextSize(2);
+    tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    tft.setCursor((SCREEN_W - 8 * 12) / 2, STATE_Y);
+    tft.print("SETTINGS");
+    for (int i = 0; i < 4; i++) drawSettingsField(i, i == curIdx);
+    char  vbuf[24];
+    float dist_xa_um = stepsToUm(dist_xa_steps);
+    tft.setTextSize(1);
+    tft.setCursor(6, 178);
+    if (dist_xa_steps > 0) {
+      tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+      snprintf(vbuf, sizeof(vbuf), "X-A: %.1f um    ", dist_xa_um);
     } else {
-      tft.setTextSize(1);
-      tft.setTextColor(0x8410 /* mid-gray */, ST77XX_BLACK);
-      tft.setCursor(16, fieldY[i]);
-      switch (i) {
-        case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);              break;
-        case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);          break;
-        case FIELD_START: snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um);        break;
-        case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");                     break;
-      }
-      tft.print(vbuf);
+      tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
+      snprintf(vbuf, sizeof(vbuf), "NOT CALIBRATED      ");
     }
+    tft.print(vbuf);
+  } else if (prevSettingsFieldIdx != curIdx) {
+    // Active field changed: redraw old (now inactive) and new (now active) rows only
+    drawSettingsField(prevSettingsFieldIdx, false);
+    drawSettingsField(curIdx, true);
+  } else {
+    // Same field, value changed: redraw active row only
+    drawSettingsField(curIdx, true);
   }
 
-  // Calibration status
-  tft.setTextSize(1);
-  tft.setCursor(6, 178);
-  if (dist_xa_steps > 0) {
-    tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-    snprintf(vbuf, sizeof(vbuf), "X-A: %.1f um    ", dist_xa_um);
-  } else {
-    tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
-    snprintf(vbuf, sizeof(vbuf), "NOT CALIBRATED      ");
-  }
-  tft.print(vbuf);
+  prevSettingsFieldIdx = curIdx;
 }
 
 
@@ -871,6 +881,7 @@ void loop() {
       clearContent();
       inSettingsScreen = needSettings;
       settingsDirty    = true;
+      if (needSettings) prevSettingsFieldIdx = -1;
     }
 
     if (inSettingsScreen) {
