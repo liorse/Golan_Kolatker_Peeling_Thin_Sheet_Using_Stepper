@@ -709,10 +709,7 @@ void setup() {
   // Load saved settings
   loadPrefs();
 
-  // Draw UI
-  initUI();
-
-  // Stepper
+  // Stepper (must be before initUI so getCurrentPosition() reads 0, not garbage)
   engine.init();
   stepper = engine.stepperConnectToPin(stepPinStepper);
   if (stepper) {
@@ -724,6 +721,9 @@ void setup() {
     stepper->setSpeedInMilliHz(speedUmToMilliHz(speed_um_s));
     stepper->setAcceleration(2147483647);
   }
+
+  // Draw UI
+  initUI();
 
   unsigned long t = millis();
   while (!Serial && millis() - t < 2000) delay(10);
