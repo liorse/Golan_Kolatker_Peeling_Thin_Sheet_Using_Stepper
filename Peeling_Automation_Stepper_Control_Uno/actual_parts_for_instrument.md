@@ -37,31 +37,31 @@
 ### Enclosure
 | Part | Spec | Source | ~Cost |
 |---|---|---|---|
-| Hammond 1455T2601 | 260×122×78mm aluminum | Mouser / DigiKey | $40 |
+| [Hammond 1455T2601](https://www.hammfg.com/part/1455T2601) | 260×122×78mm aluminum | [Mouser](https://www.mouser.com/c/enclosures/enclosures-boxes-cases/?m=Hammond) / [DigiKey](https://www.digikey.com/en/products/filter/boxes-enclosures-racks/679) | $40 |
 
 ### Power
 | Part | Spec | Source | ~Cost |
 |---|---|---|---|
-| Mean Well LRS-75-24A | 24V / 3.2A, 75W | (already owned) | — |
-| TSR 1-2450 | 24V → 5V / 1A, SIP-3 | Mouser / DigiKey | $6 |
-| Schurter 4301.1400 | IEC C14 + fuse holder, panel-mount | Mouser | $5 |
-| Fuse T1A 5×20mm | 1A slow-blow | Any | $1 |
+| [Mean Well LRS-75-24](https://www.meanwell.com/productPdf.aspx?i=403) | 24V / 3.2A, 75W | (already owned) — [DigiKey](https://www.digikey.com/en/products/detail/mean-well-usa-inc/LRS-75-24/7705055) / [Amazon](https://www.amazon.com/MeanWell-LRS-75-24-Power-Supply-75W/dp/B077B3X7S3) | — |
+| [TSR 1-2450](https://www.tracopower.com/model/tsr-1-2450) | 24V → 5V / 1A, SIP-3 | [Mouser](https://www.mouser.com/ProductDetail/TRACO-Power/TSR-1-2450?qs=ckJk83FOD0XFKqda0Mzkgw%3D%3D) / [DigiKey](https://www.digikey.ca/en/products/detail/traco-power/TSR-1-2450/9383780) | $6 |
+| [Schurter 4301.1400](https://www.schurter.com/en/products-and-solutions/components/connectors/power-entry-modules) | IEC C14 + fuse holder, panel-mount | [Mouser](https://www.mouser.com/c/connectors/power-entry-connectors/?m=Schurter) | $5 |
+| Fuse T1A 5×20mm | 1A slow-blow | Any (DigiKey, Mouser, Amazon) | $1 |
 
 ### Front Panel
 | Part | Spec | Source | ~Cost |
 |---|---|---|---|
-| KCD3 rocker switch | 22×30mm cutout, 250V/10A, illuminated | AliExpress | $3 |
-| ST7789 1.3" 240×240 module | SPI, documented PCB dimensions | Waveshare / Adafruit equiv. | $10 |
-| 16mm metal pushbutton, black | Momentary, 5V LED, illuminated (Button B) | AliExpress | $5 |
-| 16mm metal pushbutton, green | Momentary, 5V LED, illuminated (Button Y) | AliExpress | $5 |
-| Front Panel Express panel | 122×78mm custom-printed aluminum | frontpanelexpress.com | ~$40 |
+| [KCD3 rocker switch](https://www.aliexpress.com/w/wholesale-kcd3-rocker-switch.html) | 22×30mm cutout, 250V/10A, illuminated | [AliExpress](https://www.aliexpress.com/w/wholesale-kcd3-rocker-switch.html) | $3 |
+| [ST7789 1.3" 240×240 module](https://www.waveshare.com/1.3inch-lcd-module.htm) | SPI, documented PCB dimensions | [Waveshare](https://www.waveshare.com/1.3inch-lcd-module.htm) / [Amazon](https://www.amazon.com/1-3inch-LCD-Module-IPS-Communicating/dp/B07VJ63F98) | $10 |
+| [16mm metal pushbutton, black](https://www.aliexpress.com/item/4001291695467.html) | Momentary, 5V LED, illuminated (Button B) | [AliExpress](https://www.aliexpress.com/item/4001291695467.html) | $5 |
+| [16mm metal pushbutton, green](https://www.aliexpress.com/item/4001291695467.html) | Momentary, 5V LED, illuminated (Button Y) | [AliExpress](https://www.aliexpress.com/item/4001291695467.html) | $5 |
+| [Front Panel Express panel](https://www.frontpanelexpress.com/) | 122×78mm custom-printed aluminum | [frontpanelexpress.com](https://www.frontpanelexpress.com/) | ~$40 |
 
 ### Rear Panel
 | Part | Spec | Source | ~Cost |
 |---|---|---|---|
-| GX16-4 female panel-mount | 4-pin aviation socket | AliExpress | $2 |
-| GX16-4 male cable-end | 4-pin aviation plug (for motor cable) | AliExpress | $2 |
-| Panel-mount micro-USB | Female, solder terminals | AliExpress | $4 |
+| [GX16-4 female panel-mount](https://www.aliexpress.com/item/32830722292.html) | 4-pin aviation socket | [AliExpress](https://www.aliexpress.com/item/32830722292.html) | $2 |
+| [GX16-4 male cable-end](https://www.aliexpress.com/item/32830722292.html) | 4-pin aviation plug (for motor cable) | [AliExpress](https://www.aliexpress.com/item/32830722292.html) | $2 |
+| [Panel-mount micro-USB](https://www.aliexpress.com/w/wholesale-micro-usb-panel-mount.html) | Female, solder terminals | [AliExpress](https://www.aliexpress.com/w/wholesale-micro-usb-panel-mount.html) | $4 |
 
 ### Internal Electronics
 | Part | Qty | Source | ~Cost |
