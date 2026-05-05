@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(arduino-cli board *)"
+      "Bash(arduino-cli board *)",
+      "WebSearch",
+      "WebFetch"
     ]
   }
 }

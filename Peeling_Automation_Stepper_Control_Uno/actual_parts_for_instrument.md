@@ -18,7 +18,7 @@
 | Pico power | TSR 1-2450 buck regulator (24V → 5V, SIP-3), feeds VSYS pin |
 | Pico programming | Panel-mount micro-USB on rear; coexists with VSYS power (internal OR-diode) |
 | WiFi | Status monitoring + remote control (firmware TBD separately) |
-| Enclosure | Hammond 1455T2601 — 260×122×78mm aluminum extruded |
+| Enclosure | Hammond 1455Q2202 — 220×125×52mm aluminum body, plastic end panels (RF-transparent for Pico W WiFi) |
 | AC switching | Illuminated rocker switch on front panel (mains-rated, 250V/10A) |
 | IEC inlet | Rear panel, IEC C14 + integrated fuse holder, 1A T slow-blow fuse |
 | Display | Standalone ST7789 1.3" 240×240 SPI module, mounted in 3D-printed bezel |
@@ -37,7 +37,7 @@
 ### Enclosure
 | Part | MPN | Spec | Source | ~Cost |
 |---|---|---|---|---|
-| [Hammond 1455T2601](https://www.hammfg.com/part/1455T2601) | 1455T2601 | 260×122×78mm aluminum | [Mouser](https://www.mouser.com/c/enclosures/enclosures-boxes-cases/?m=Hammond) / [DigiKey](https://www.digikey.com/en/products/filter/boxes-enclosures-racks/679) | $40 |
+| [Hammond 1455Q2202](https://www.hammfg.com/part/1455Q2202) | 1455Q2202 | 220×125×52mm, plastic end panels (WiFi-transparent) | [Mouser](https://www.mouser.com/ProductDetail/Hammond-Manufacturing/1455Q2202?qs=CUcEH/sN5tIHhQeXecWocA%3D%3D) / [DigiKey](https://www.digikey.com/en/products/detail/hammond-manufacturing/1455Q2202/2094863) | ~$35 |
 
 ### Power
 | Part | MPN | Spec | Source | ~Cost |
