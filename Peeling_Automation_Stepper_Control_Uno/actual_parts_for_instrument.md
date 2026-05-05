@@ -35,40 +35,45 @@
 ## Complete Parts List
 
 ### Enclosure
-| Part | Spec | Source | ~Cost |
-|---|---|---|---|
-| [Hammond 1455T2601](https://www.hammfg.com/part/1455T2601) | 260×122×78mm aluminum | [Mouser](https://www.mouser.com/c/enclosures/enclosures-boxes-cases/?m=Hammond) / [DigiKey](https://www.digikey.com/en/products/filter/boxes-enclosures-racks/679) | $40 |
+| Part | MPN | Spec | Source | ~Cost |
+|---|---|---|---|---|
+| [Hammond 1455T2601](https://www.hammfg.com/part/1455T2601) | 1455T2601 | 260×122×78mm aluminum | [Mouser](https://www.mouser.com/c/enclosures/enclosures-boxes-cases/?m=Hammond) / [DigiKey](https://www.digikey.com/en/products/filter/boxes-enclosures-racks/679) | $40 |
 
 ### Power
-| Part | Spec | Source | ~Cost |
-|---|---|---|---|
-| [Mean Well LRS-75-24](https://www.meanwell.com/productPdf.aspx?i=403) | 24V / 3.2A, 75W | (already owned) — [DigiKey](https://www.digikey.com/en/products/detail/mean-well-usa-inc/LRS-75-24/7705055) / [Amazon](https://www.amazon.com/MeanWell-LRS-75-24-Power-Supply-75W/dp/B077B3X7S3) | — |
-| [TSR 1-2450](https://www.tracopower.com/model/tsr-1-2450) | 24V → 5V / 1A, SIP-3 | [Mouser](https://www.mouser.com/ProductDetail/TRACO-Power/TSR-1-2450?qs=ckJk83FOD0XFKqda0Mzkgw%3D%3D) / [DigiKey](https://www.digikey.ca/en/products/detail/traco-power/TSR-1-2450/9383780) | $6 |
-| [Schurter 4301.1400](https://www.schurter.com/en/products-and-solutions/components/connectors/power-entry-modules) | IEC C14 + fuse holder, panel-mount | [Mouser](https://www.mouser.com/c/connectors/power-entry-connectors/?m=Schurter) | $5 |
-| Fuse T1A 5×20mm | 1A slow-blow | Any (DigiKey, Mouser, Amazon) | $1 |
+| Part | MPN | Spec | Source | ~Cost |
+|---|---|---|---|---|
+| [Mean Well LRS-75-24](https://www.meanwell.com/productPdf.aspx?i=403) | LRS-75-24 | 24V / 3.2A, 75W | (already owned) — [DigiKey](https://www.digikey.com/en/products/detail/mean-well-usa-inc/LRS-75-24/7705055) / [Amazon](https://www.amazon.com/MeanWell-LRS-75-24-Power-Supply-75W/dp/B077B3X7S3) | — |
+| [TSR 1-2450](https://www.tracopower.com/model/tsr-1-2450) | TSR 1-2450 | 24V → 5V / 1A, SIP-3 | [Mouser](https://www.mouser.com/ProductDetail/TRACO-Power/TSR-1-2450?qs=ckJk83FOD0XFKqda0Mzkgw%3D%3D) / [DigiKey](https://www.digikey.ca/en/products/detail/traco-power/TSR-1-2450/9383780) | $6 |
+| [Schurter 4301.1400](https://www.schurter.com/en/products-and-solutions/components/connectors/power-entry-modules) | 4301.1400 | IEC C14 + fuse holder, panel-mount | [Mouser](https://www.mouser.com/c/connectors/power-entry-connectors/?m=Schurter) | $5 |
+| Fuse T1A 5×20mm | — | 1A slow-blow | Any (DigiKey, Mouser, Amazon) | $1 |
 
 ### Front Panel
-| Part | Spec | Source | ~Cost |
-|---|---|---|---|
-| [KCD3 rocker switch](https://www.aliexpress.com/w/wholesale-kcd3-rocker-switch.html) | 22×30mm cutout, 250V/10A, illuminated | [AliExpress](https://www.aliexpress.com/w/wholesale-kcd3-rocker-switch.html) | $3 |
-| [ST7789 1.3" 240×240 module](https://www.waveshare.com/1.3inch-lcd-module.htm) | SPI, documented PCB dimensions | [Waveshare](https://www.waveshare.com/1.3inch-lcd-module.htm) / [Amazon](https://www.amazon.com/1-3inch-LCD-Module-IPS-Communicating/dp/B07VJ63F98) | $10 |
-| [16mm metal pushbutton, black](https://www.aliexpress.com/item/4001291695467.html) | Momentary, 5V LED, illuminated (Button B) | [AliExpress](https://www.aliexpress.com/item/4001291695467.html) | $5 |
-| [16mm metal pushbutton, green](https://www.aliexpress.com/item/4001291695467.html) | Momentary, 5V LED, illuminated (Button Y) | [AliExpress](https://www.aliexpress.com/item/4001291695467.html) | $5 |
-| [Front Panel Express panel](https://www.frontpanelexpress.com/) | 122×78mm custom-printed aluminum | [frontpanelexpress.com](https://www.frontpanelexpress.com/) | ~$40 |
+| Part | MPN | Spec | Source | ~Cost |
+|---|---|---|---|---|
+| [KCD3 rocker switch](https://www.aliexpress.com/w/wholesale-kcd3-rocker-switch.html) | KCD3 | 22×30mm cutout, 250V/10A, illuminated | [AliExpress](https://www.aliexpress.com/w/wholesale-kcd3-rocker-switch.html) | $3 |
+| [ST7789 1.3" 240×240 module](https://www.waveshare.com/1.3inch-lcd-module.htm) | 1.3inch LCD Module | SPI, documented PCB dimensions | [Waveshare](https://www.waveshare.com/1.3inch-lcd-module.htm) / [Amazon](https://www.amazon.com/1-3inch-LCD-Module-IPS-Communicating/dp/B07VJ63F98) | $10 |
+| [16mm metal pushbutton, black](https://www.aliexpress.com/item/4001291695467.html) | — (generic) | Momentary, 5V LED, illuminated (Button B) | [AliExpress](https://www.aliexpress.com/item/4001291695467.html) | $5 |
+| [16mm metal pushbutton, green](https://www.aliexpress.com/item/4001291695467.html) | — (generic) | Momentary, 5V LED, illuminated (Button Y) | [AliExpress](https://www.aliexpress.com/item/4001291695467.html) | $5 |
+| [Front Panel Express panel](https://www.frontpanelexpress.com/) | — (custom) | 122×78mm custom-printed aluminum | [frontpanelexpress.com](https://www.frontpanelexpress.com/) | ~$40 |
 
 ### Rear Panel
-| Part | Spec | Source | ~Cost |
-|---|---|---|---|
-| [GX16-4 female panel-mount](https://www.aliexpress.com/item/32830722292.html) | 4-pin aviation socket | [AliExpress](https://www.aliexpress.com/item/32830722292.html) | $2 |
-| [GX16-4 male cable-end](https://www.aliexpress.com/item/32830722292.html) | 4-pin aviation plug (for motor cable) | [AliExpress](https://www.aliexpress.com/item/32830722292.html) | $2 |
-| [Panel-mount micro-USB](https://www.aliexpress.com/w/wholesale-micro-usb-panel-mount.html) | Female, solder terminals | [AliExpress](https://www.aliexpress.com/w/wholesale-micro-usb-panel-mount.html) | $4 |
+| Part | MPN | Spec | Source | ~Cost |
+|---|---|---|---|---|
+| [GX16-4 female panel-mount](https://www.aliexpress.com/item/32830722292.html) | GX16-4 | 4-pin aviation socket | [AliExpress](https://www.aliexpress.com/item/32830722292.html) | $2 |
+| [GX16-4 male cable-end](https://www.aliexpress.com/item/32830722292.html) | GX16-4 | 4-pin aviation plug (for motor cable) | [AliExpress](https://www.aliexpress.com/item/32830722292.html) | $2 |
+| [Panel-mount micro-USB](https://www.aliexpress.com/w/wholesale-micro-usb-panel-mount.html) | — (generic) | Female, solder terminals | [AliExpress](https://www.aliexpress.com/w/wholesale-micro-usb-panel-mount.html) | $4 |
+
+### MCU
+| Part | MPN | Spec | Source | ~Cost |
+|---|---|---|---|---|
+| [Raspberry Pi Pico W](https://www.raspberrypi.com/products/raspberry-pi-pico/) | SC0918 | RP2040, 2.4GHz WiFi, micro-USB | [Raspberry Pi](https://www.raspberrypi.com/products/raspberry-pi-pico/) / [Adafruit](https://www.adafruit.com/product/5526) / [DigiKey](https://www.digikey.com/en/products/detail/raspberry-pi/SC0918/16608263) | $6 |
 
 ### Internal Electronics
-| Part | Qty | Source | ~Cost |
-|---|---|---|---|
-| 2N2222 NPN transistor (TO-92) | 2 | Any | <$1 |
-| 1kΩ resistor 1/4W | 2 | Any | <$1 |
-| Perfboard strip | 1 small | Any | $1 |
+| Part | MPN | Qty | Source | ~Cost |
+|---|---|---|---|---|
+| 2N2222 NPN transistor (TO-92) | 2N2222A | 2 | Any | <$1 |
+| 1kΩ resistor 1/4W | — (generic) | 2 | Any | <$1 |
+| Perfboard strip | — (generic) | 1 small | Any | $1 |
 
 ### Wiring & Connectors
 | Item | Notes |
