@@ -21,9 +21,10 @@
 | Enclosure | Hammond 1455Q2202 — 220×125×52mm aluminum body, plastic end panels (RF-transparent for Pico W WiFi) |
 | AC switching | Illuminated rocker switch on front panel (mains-rated, 250V/10A) |
 | IEC inlet | Rear panel, IEC C14 + integrated fuse holder, 1A T slow-blow fuse |
-| Display | Adafruit 2.8" 240×320 ILI9341 SPI (#1770) — firmware driver swap ST7789→ILI9341 needed, active area ~57×43mm |
+| Display | Waveshare Pico-ResTouch-LCD-3.5 (ILI9488, 480×320, ~73×49mm active area) — plugs directly onto Pico 40-pin header via SPI1 (GP8–GP13, GP16–GP17); **firmware pin reassignment + driver change required (not yet done)** |
 | UI buttons | 2× Gateron KS-33 LP Brown (tactile) + low-profile MX keycaps, 14×14mm plate cutout, snap into 1.5mm aluminum panel |
-| Button illumination | State-controlled via GPIO 6 (B-LED) and GPIO 7 (Y-LED) through 2N2222 transistors |
+| Button illumination | State-controlled via GPIO 0 (B-LED) and GPIO 1 (Y-LED) through 2N2222 transistors (reassigned from GP6/7 which conflict with Waveshare) |
+| AC switching | Rear panel — illuminated rocker switch (mains-rated, 250V/10A); moved from front panel to accommodate 3.5" display width |
 | Stepper output | GX16-4 aviation connector, 4-pin, female panel-mount on rear |
 | Motor cable end | GX16-4 male plug (A+/A−/B+/B−) |
 | Labels | Front Panel Express custom-printed aluminum panel |
@@ -51,7 +52,7 @@
 | Part | MPN | Spec | Source | ~Cost |
 |---|---|---|---|---|
 | [KCD3 rocker switch](https://www.aliexpress.com/w/wholesale-kcd3-rocker-switch.html) | KCD3 | 22×30mm cutout, 250V/10A, illuminated | [AliExpress](https://www.aliexpress.com/w/wholesale-kcd3-rocker-switch.html) | $3 |
-| [Adafruit 2.8" 240×320 TFT LCD](https://www.adafruit.com/product/1770) | Adafruit #1770 | ILI9341 driver, SPI, 82×64mm PCB, active area ~57×43mm — firmware driver swap ST7789→ILI9341 needed | [Adafruit](https://www.adafruit.com/product/1770) / [DigiKey](https://www.digikey.com/en/products/detail/adafruit-industries-llc/1770/5875815) | $30 |
+| [Waveshare Pico-ResTouch-LCD-3.5](https://www.waveshare.com/pico-restouch-lcd-3.5.htm) | Pico-ResTouch-LCD-3.5 | ILI9488, 480×320, ~73×49mm active area, plug-on Pico board (SPI1 GP8–GP13, GP16–GP17) | [Waveshare](https://www.waveshare.com/pico-restouch-lcd-3.5.htm) | ~$25 |
 | [Gateron KS-33 LP 2.0 Brown (35pcs)](https://www.gateron.com/products/gateron-ks-33-low-profile-switch-set) | KS-33 Brown | Low-profile tactile, 14×14mm plate cutout, SMD LED slot, 1.5mm plate snap-in | [Gateron](https://www.gateron.com/products/gateron-ks-33-low-profile-switch-set) / [Amazon](https://www.amazon.com/GATERON-Switches-Pre-lubed-Mechanical-Keyboard/dp/B0BZYHJ9XB) | ~$15 (35pcs, need 2) |
 | Low-profile MX keycaps 1U blank (×2) | — (generic) | LP MX stem, fits KS-33 — e.g. Nuphy or Keychron LP caps | [Amazon](https://www.amazon.com/s?k=low+profile+mx+keycap+1u+blank) / [Keychron](https://www.keychron.com) | ~$5 |
 | [Front Panel Express panel](https://www.frontpanelexpress.com/) | — (custom) | 122×78mm, **1.5mm aluminum** (required for MX snap-in mount) | [frontpanelexpress.com](https://www.frontpanelexpress.com/) | ~$40 |
@@ -89,10 +90,12 @@
 ## Front Panel Layout (122mm × 78mm)
 
 ```
-|←8→|←22→|←7→|←30→|←7→|←16→|←8→|←16→|←8→|
-     PWR       DISPLAY     BTN-B       BTN-Y
+|←13→|←14→|←8→|←────73────→|←14→|
+      BTN-B       DISPLAY
+      BTN-Y
 ```
 
+PWR rocker is on the rear panel (3.5" display fills available front width).
 All items vertically centered on the 78mm face.
 
 ---
@@ -114,13 +117,23 @@ All items vertically centered on the 78mm face.
 
 ---
 
-## Firmware Change Required
+## Firmware Changes Required
 
-State-controlled button LEDs require two new GPIO outputs:
-- **GPIO 6** → B-button LED (on during SETTINGS / HOMING)
-- **GPIO 7** → Y-button LED (on during MOVING_TO_START / PEELING)
+The Waveshare Pico-ResTouch-LCD-3.5 occupies GP8–GP13 and GP15–GP17 (display + touch). Several of these conflict with the current firmware. Required changes before hardware assembly:
 
-Approximately 10 lines added to the state machine. No other firmware changes needed for the enclosure build.
+| Change | Current | New |
+|---|---|---|
+| Display driver | `Adafruit_ST7789` | Waveshare ILI9488 library |
+| SPI bus | SPI0 (GP18/19) | SPI1 (GP10/11, internal to Waveshare board) |
+| Screen resolution | 240×240 | 480×320 + landscape UI layout |
+| BTN_A pin | GP12 | **GP6** |
+| BTN_B pin | GP13 | **GP7** |
+| BTN_Y limit pin | GP15 | **GP2** |
+| B-LED pin | GP6 | **GP0** |
+| Y-LED pin | GP7 | **GP1** |
+
+BTN_X (GP14) and stepper pins (GP3/4/5) are unaffected.
+Estimated scope: ~20 lines for pin reassignment + display driver swap + UI layout recalculation.
 
 ---
 

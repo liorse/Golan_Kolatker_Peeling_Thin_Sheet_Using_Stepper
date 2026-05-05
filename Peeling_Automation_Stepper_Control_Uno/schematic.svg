@@ -1,0 +1,505 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1900 1400" width="1900" height="1400" font-family="Arial,Helvetica,sans-serif">
+
+<!-- ================================================================ -->
+<!-- Peeling Instrument — Electrical Schematic                        -->
+<!-- MCU: Raspberry Pi Pico W (RP2040)  Driver: DM542T  Motor: NEMA17 -->
+<!-- Firmware v4.0.0  |  2026-05-05                                   -->
+<!-- ================================================================ -->
+
+<defs>
+  <marker id="jdot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+    <circle cx="4" cy="4" r="3.5" fill="#222"/>
+  </marker>
+</defs>
+
+<!-- White background -->
+<rect width="1900" height="1400" fill="#fff"/>
+
+<!-- ── Title bar ── -->
+<rect x="0" y="0" width="1900" height="48" fill="#1A252F"/>
+<text x="950" y="32" text-anchor="middle" fill="white" font-size="20" font-weight="bold">
+  Peeling Instrument — Electrical Schematic  (Pico W + DM542T + NEMA17)
+</text>
+<text x="1885" y="32" text-anchor="end" fill="#aaa" font-size="11">v4.0.0 · 2026-05-05</text>
+
+<!-- ── Legend ── -->
+<rect x="1530" y="58" width="350" height="260" rx="5" fill="#f8f8f8" stroke="#aaa" stroke-width="1.5"/>
+<text x="1705" y="79" text-anchor="middle" font-size="13" font-weight="bold" fill="#222">LEGEND</text>
+<line x1="1548" y1="92"  x2="1598" y2="92"  stroke="#8B0000" stroke-width="3"/>  <text x="1608" y="96"  font-size="12" fill="#333">+24 V DC</text>
+<line x1="1548" y1="112" x2="1598" y2="112" stroke="#E67E22" stroke-width="2.5"/><text x="1608" y="116" font-size="12" fill="#333">+5 V DC</text>
+<line x1="1548" y1="132" x2="1598" y2="132" stroke="#1A252F" stroke-width="2.5"/><text x="1608" y="136" font-size="12" fill="#333">GND / 0 V</text>
+<line x1="1548" y1="152" x2="1598" y2="152" stroke="#6B2D8B" stroke-width="2.5"/><text x="1608" y="156" font-size="12" fill="#333">AC Live (L)</text>
+<line x1="1548" y1="172" x2="1598" y2="172" stroke="#154360" stroke-width="2.5"/><text x="1608" y="176" font-size="12" fill="#333">AC Neutral (N)</text>
+<line x1="1548" y1="192" x2="1598" y2="192" stroke="#1E8449" stroke-width="2.5"/><text x="1608" y="196" font-size="12" fill="#333">AC Earth (PE)</text>
+<line x1="1548" y1="212" x2="1598" y2="212" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="6,3"/><text x="1608" y="216" font-size="12" fill="#333">GPIO signal</text>
+<line x1="1548" y1="232" x2="1598" y2="232" stroke="#784212" stroke-width="2.5"/><text x="1608" y="236" font-size="12" fill="#333">Motor phase</text>
+<line x1="1548" y1="252" x2="1598" y2="252" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="6,3"/><text x="1608" y="256" font-size="12" fill="#333">SPI / display</text>
+<circle cx="1573" cy="278" r="5" fill="#222"/>
+<text x="1608" y="282" font-size="12" fill="#333">Wire junction</text>
+
+<!-- ================================================================ -->
+<!-- SECTION: AC MAINS (yellow warning background)                    -->
+<!-- ================================================================ -->
+<rect x="30" y="58" width="760" height="165" rx="6" fill="#FFF9C4" stroke="#F9A825" stroke-width="1.5" stroke-dasharray="7,3"/>
+<text x="44" y="76" font-size="11" font-weight="bold" fill="#B71C1C">⚠  MAINS 220 V AC — HAZARDOUS — UNPLUG BEFORE WORKING</text>
+
+<!-- IEC C14 Inlet + Fuse -->
+<rect x="50" y="85" width="200" height="120" rx="6" fill="#EEF4FF" stroke="#2C3E50" stroke-width="2"/>
+<text x="150" y="105" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">IEC C14 Inlet</text>
+<text x="150" y="121" text-anchor="middle" font-size="11" fill="#555">Schurter 4301.1400</text>
+<text x="150" y="137" text-anchor="middle" font-size="11" fill="#555">T1A slow-blow fuse</text>
+<text x="150" y="153" text-anchor="middle" font-size="10" fill="#888">(rear panel)</text>
+<!-- IEC right-side pins → toward rocker -->
+<line x1="250" y1="103" x2="310" y2="103" stroke="#6B2D8B" stroke-width="2.5"/>
+<text x="263" y="100" font-size="10" fill="#6B2D8B" font-weight="bold">L (fused)</text>
+<line x1="250" y1="127" x2="510" y2="127" stroke="#154360" stroke-width="2.5"/>
+<text x="258" y="123" font-size="10" fill="#154360" font-weight="bold">N</text>
+<line x1="250" y1="151" x2="510" y2="151" stroke="#1E8449" stroke-width="2.5"/>
+<text x="258" y="147" font-size="10" fill="#1E8449" font-weight="bold">PE</text>
+
+<!-- Rocker Switch KCD3 -->
+<rect x="310" y="85" width="150" height="120" rx="6" fill="#EEF4FF" stroke="#2C3E50" stroke-width="2"/>
+<text x="385" y="105" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">Rocker SW</text>
+<text x="385" y="121" text-anchor="middle" font-size="11" fill="#555">KCD3 250 V / 10 A</text>
+<text x="385" y="137" text-anchor="middle" font-size="11" fill="#555">illuminated</text>
+<text x="385" y="153" text-anchor="middle" font-size="10" fill="#888">(rear panel)</text>
+<!-- L in (left) / L out (right) -->
+<line x1="310" y1="103" x2="270" y2="103" stroke="#6B2D8B" stroke-width="2.5"/>
+<line x1="460" y1="103" x2="510" y2="103" stroke="#6B2D8B" stroke-width="2.5"/>
+<text x="468" y="100" font-size="10" fill="#6B2D8B" font-weight="bold">L out</text>
+
+<!-- Mean Well LRS-75-24 PSU -->
+<rect x="510" y="68" width="260" height="165" rx="6" fill="#EEF4FF" stroke="#2C3E50" stroke-width="2"/>
+<text x="640" y="89" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">Mean Well LRS-75-24</text>
+<text x="640" y="107" text-anchor="middle" font-size="11" fill="#555">24 V DC / 3.2 A / 75 W</text>
+<line x1="525" y1="125" x2="755" y2="125" stroke="#bbb" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="530" y="122" font-size="10" fill="#888">AC IN</text>
+<text x="710" y="122" font-size="10" fill="#888">DC OUT</text>
+<!-- AC pins left side -->
+<line x1="510" y1="103" x2="460" y2="103" stroke="#6B2D8B" stroke-width="2.5"/>
+<!-- N and PE already go straight to x=510 from IEC line above -->
+<!-- DC output pins right side -->
+<line x1="770" y1="138" x2="850" y2="138" stroke="#8B0000" stroke-width="3"/>
+<text x="775" y="134" font-size="11" font-weight="bold" fill="#8B0000">+24 V</text>
+<line x1="770" y1="162" x2="850" y2="162" stroke="#1A252F" stroke-width="2.5"/>
+<text x="775" y="158" font-size="11" font-weight="bold" fill="#1A252F">GND</text>
+
+<!-- ================================================================ -->
+<!-- POWER BUSES (horizontal rails running across main section)       -->
+<!-- ================================================================ -->
+<!-- +24V bus  y=248 -->
+<line x1="60"  y1="248" x2="1100" y2="248" stroke="#8B0000" stroke-width="3"/>
+<text x="1105" y="244" font-size="11" font-weight="bold" fill="#8B0000">+24 V BUS</text>
+<!-- GND bus   y=272 -->
+<line x1="60"  y1="272" x2="1100" y2="272" stroke="#1A252F" stroke-width="2.5"/>
+<text x="1105" y="268" font-size="11" font-weight="bold" fill="#1A252F">GND BUS</text>
+
+<!-- PSU +24V → bus (drop from PSU right side) -->
+<polyline points="850,138 870,138 870,248" stroke="#8B0000" stroke-width="3" fill="none"/>
+<circle cx="870" cy="248" r="4.5" fill="#8B0000"/>
+<!-- PSU GND → bus -->
+<polyline points="850,162 880,162 880,272" stroke="#1A252F" stroke-width="2.5" fill="none"/>
+<circle cx="880" cy="272" r="4.5" fill="#1A252F"/>
+
+<!-- ================================================================ -->
+<!-- TSR 1-2450 BUCK REGULATOR                                        -->
+<!-- ================================================================ -->
+<rect x="50" y="300" width="180" height="110" rx="6" fill="#EEF4FF" stroke="#2C3E50" stroke-width="2"/>
+<text x="140" y="320" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">TSR 1-2450</text>
+<text x="140" y="338" text-anchor="middle" font-size="11" fill="#555">24 V → 5 V / 1 A</text>
+<text x="140" y="354" text-anchor="middle" font-size="11" fill="#555">SIP-3 on perfboard</text>
+<!-- Vin ← +24V bus (drop down from bus) -->
+<line x1="110" y1="300" x2="110" y2="248" stroke="#8B0000" stroke-width="3"/>
+<circle cx="110" cy="248" r="4.5" fill="#8B0000"/>
+<text x="113" y="265" font-size="10" fill="#8B0000">Vin</text>
+<!-- GND pin ← GND bus -->
+<line x1="155" y1="300" x2="155" y2="272" stroke="#1A252F" stroke-width="2.5"/>
+<circle cx="155" cy="272" r="4.5" fill="#1A252F"/>
+<text x="158" y="290" font-size="10" fill="#1A252F">GND</text>
+<!-- 5V output → right to Pico VSYS -->
+<line x1="230" y1="345" x2="380" y2="345" stroke="#E67E22" stroke-width="2.5"/>
+<text x="240" y="341" font-size="10" fill="#E67E22" font-weight="bold">+5 V out → Pico VSYS</text>
+
+<!-- ================================================================ -->
+<!-- RASPBERRY PI PICO W                                              -->
+<!-- ================================================================ -->
+<rect x="370" y="290" width="300" height="530" rx="6" fill="#E8F5E9" stroke="#2C3E50" stroke-width="2.5"/>
+<text x="520" y="312" text-anchor="middle" font-size="14" font-weight="bold" fill="#2C3E50">Raspberry Pi Pico W</text>
+<text x="520" y="330" text-anchor="middle" font-size="11" fill="#555">RP2040 + 2.4 GHz WiFi  (SC0918)</text>
+<line x1="380" y1="340" x2="660" y2="340" stroke="#aaa" stroke-width="1" stroke-dasharray="4,4"/>
+
+<!-- POWER CONNECTIONS -->
+<text x="385" y="358" font-size="11" font-weight="bold" fill="#444">POWER:</text>
+<!-- VSYS ← TSR 5V (wire arrives from left) -->
+<line x1="370" y1="365" x2="330" y2="365" stroke="#E67E22" stroke-width="2.5"/>
+<polyline points="330,365 330,345 280,345" stroke="#E67E22" stroke-width="2.5" fill="none"/>
+<text x="375" y="362" font-size="10" fill="#E67E22">VSYS (pin 39) ← 5 V</text>
+<!-- GND ← GND bus -->
+<line x1="370" y1="383" x2="320" y2="383" stroke="#1A252F" stroke-width="2.5"/>
+<polyline points="320,383 320,272 320,272" stroke="#1A252F" stroke-width="2.5" fill="none"/>
+<circle cx="320" cy="272" r="4.5" fill="#1A252F"/>
+<text x="375" y="380" font-size="10" fill="#1A252F">GND (pin 38)</text>
+<!-- 3V3 out to display -->
+<line x1="670" y1="373" x2="730" y2="373" stroke="#27AE60" stroke-width="2"/>
+<text x="675" y="370" font-size="10" fill="#27AE60">3.3 V (pin 36)</text>
+
+<line x1="380" y1="395" x2="660" y2="395" stroke="#aaa" stroke-width="1" stroke-dasharray="3,3"/>
+
+<!-- STEPPER CONTROL GPIOS -->
+<text x="385" y="413" font-size="11" font-weight="bold" fill="#444">STEPPER CONTROL:</text>
+<text x="385" y="432" font-size="11" fill="#1565C0">GPIO  3 → ENA−</text>
+<line x1="670" y1="428" x2="730" y2="428" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="385" y="450" font-size="11" fill="#1565C0">GPIO  4 → DIR−</text>
+<line x1="670" y1="446" x2="730" y2="446" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="385" y="468" font-size="11" fill="#1565C0">GPIO  5 → PUL−</text>
+<line x1="670" y1="464" x2="730" y2="464" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="5,3"/>
+
+<line x1="380" y1="480" x2="660" y2="480" stroke="#aaa" stroke-width="1" stroke-dasharray="3,3"/>
+
+<!-- DISPLAY SPI -->
+<text x="385" y="497" font-size="11" font-weight="bold" fill="#444">DISPLAY (SPI0):</text>
+<text x="385" y="514" font-size="11" fill="#7D3C98">GPIO 16 = TFT_DC</text>
+<line x1="370" y1="510" x2="340" y2="510" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="385" y="531" font-size="11" fill="#7D3C98">GPIO 17 = TFT_CS</text>
+<line x1="370" y1="527" x2="340" y2="527" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="385" y="548" font-size="11" fill="#7D3C98">GPIO 18 = SCK</text>
+<line x1="370" y1="544" x2="340" y2="544" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="385" y="565" font-size="11" fill="#7D3C98">GPIO 19 = MOSI</text>
+<line x1="370" y1="561" x2="340" y2="561" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="385" y="582" font-size="11" fill="#7D3C98">GPIO 20 = TFT_BL</text>
+<line x1="370" y1="578" x2="340" y2="578" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+<line x1="380" y1="592" x2="660" y2="592" stroke="#aaa" stroke-width="1" stroke-dasharray="3,3"/>
+
+<!-- BUTTON / LIMIT GPIOS -->
+<text x="385" y="609" font-size="11" font-weight="bold" fill="#444">BUTTONS &amp; LIMIT SWITCHES:</text>
+<text x="385" y="627" font-size="11" fill="#1565C0">GPIO 12 = BTN_A (far-end limit)</text>
+<line x1="370" y1="623" x2="320" y2="623" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="385" y="644" font-size="11" fill="#1565C0">GPIO 13 = BTN_B (UI settings)</text>
+<line x1="370" y1="640" x2="320" y2="640" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="385" y="661" font-size="11" fill="#1565C0">GPIO 14 = BTN_X (home-end limit)</text>
+<line x1="370" y1="657" x2="320" y2="657" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="385" y="678" font-size="11" fill="#1565C0">GPIO 15 = BTN_Y (UI start/stop)</text>
+<line x1="370" y1="674" x2="320" y2="674" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+<line x1="380" y1="690" x2="660" y2="690" stroke="#aaa" stroke-width="1" stroke-dasharray="3,3"/>
+
+<!-- LED DRIVER GPIOS (planned) -->
+<text x="385" y="707" font-size="11" font-weight="bold" fill="#444">LED DRIVERS (planned):</text>
+<text x="385" y="724" font-size="11" fill="#D35400">GPIO  0 → B-LED (2N2222)</text>
+<line x1="370" y1="720" x2="330" y2="720" stroke="#E67E22" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="385" y="741" font-size="11" fill="#D35400">GPIO  1 → Y-LED (2N2222)</text>
+<line x1="370" y1="737" x2="330" y2="737" stroke="#E67E22" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+<!-- USB note -->
+<line x1="380" y1="750" x2="660" y2="750" stroke="#aaa" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="385" y="767" font-size="11" font-weight="bold" fill="#444">USB PROGRAMMING PORT:</text>
+<text x="385" y="784" font-size="11" fill="#555">micro-USB → panel-mount socket</text>
+<line x1="370" y1="780" x2="320" y2="780" stroke="#555" stroke-width="1.5" stroke-dasharray="3,3"/>
+
+<!-- ================================================================ -->
+<!-- DM542T STEPPER DRIVER                                            -->
+<!-- ================================================================ -->
+<rect x="730" y="290" width="260" height="430" rx="6" fill="#FFF3E0" stroke="#2C3E50" stroke-width="2"/>
+<text x="860" y="312" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">DM542T (V4.0)</text>
+<text x="860" y="330" text-anchor="middle" font-size="11" fill="#555">Stepper Driver  20–50 V / 2–4.2 A</text>
+<line x1="740" y1="340" x2="980" y2="340" stroke="#bbb" stroke-width="1" stroke-dasharray="4,4"/>
+
+<!-- POWER INPUT -->
+<text x="745" y="358" font-size="11" font-weight="bold" fill="#444">POWER INPUT:</text>
+<!-- VCC+ ← +24V bus -->
+<line x1="730" y1="370" x2="690" y2="370" stroke="#8B0000" stroke-width="3"/>
+<polyline points="690,370 690,248" stroke="#8B0000" stroke-width="3" fill="none"/>
+<circle cx="690" cy="248" r="4.5" fill="#8B0000"/>
+<text x="735" y="367" font-size="10" fill="#8B0000" font-weight="bold">VCC+ ← +24 V</text>
+<!-- VCC- ← GND bus -->
+<line x1="730" y1="390" x2="695" y2="390" stroke="#1A252F" stroke-width="2.5"/>
+<polyline points="695,390 695,272" stroke="#1A252F" stroke-width="2.5" fill="none"/>
+<circle cx="695" cy="272" r="4.5" fill="#1A252F"/>
+<text x="735" y="387" font-size="10" fill="#1A252F" font-weight="bold">VCC− ← GND</text>
+
+<line x1="740" y1="402" x2="980" y2="402" stroke="#bbb" stroke-width="1" stroke-dasharray="3,3"/>
+
+<!-- CONTROL INPUTS (single-ended, + tied to 5V) -->
+<text x="745" y="419" font-size="11" font-weight="bold" fill="#444">CONTROL (single-ended):</text>
+<text x="745" y="436" font-size="10" fill="#888">+ pins tied to +5 V, − pins to GPIO</text>
+<!-- ENA -->
+<text x="745" y="455" font-size="11" fill="#1A252F">ENA+ ← +5 V</text>
+<line x1="730" y1="451" x2="705" y2="451" stroke="#E67E22" stroke-width="2"/>
+<text x="745" y="473" font-size="11" fill="#1565C0">ENA− ← GPIO 3</text>
+<line x1="730" y1="469" x2="670" y2="469" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="5,3"/>
+<polyline points="670,469 670,428 670,428" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="5,3" fill="none"/>
+<!-- DIR -->
+<text x="745" y="492" font-size="11" fill="#1A252F">DIR+ ← +5 V</text>
+<line x1="730" y1="488" x2="705" y2="488" stroke="#E67E22" stroke-width="2"/>
+<text x="745" y="510" font-size="11" fill="#1565C0">DIR− ← GPIO 4</text>
+<line x1="730" y1="506" x2="670" y2="506" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="5,3"/>
+<polyline points="670,506 670,446" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="5,3" fill="none"/>
+<!-- PUL -->
+<text x="745" y="529" font-size="11" fill="#1A252F">PUL+ ← +5 V</text>
+<line x1="730" y1="525" x2="705" y2="525" stroke="#E67E22" stroke-width="2"/>
+<text x="745" y="547" font-size="11" fill="#1565C0">PUL− ← GPIO 5</text>
+<line x1="730" y1="543" x2="670" y2="543" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="5,3"/>
+<polyline points="670,543 670,464" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="5,3" fill="none"/>
+
+<!-- 5V bus vertical feed for + pins -->
+<polyline points="705,451 705,488 705,525" stroke="#E67E22" stroke-width="2" fill="none"/>
+<circle cx="705" cy="488" r="3" fill="#E67E22"/>
+<!-- 5V from TSR through Pico VSYS then out the Pico right side as 5V rail — simplified note -->
+<text x="650" y="455" font-size="10" fill="#E67E22" text-anchor="end">+5 V</text>
+<line x1="660" y1="488" x2="705" y2="488" stroke="#E67E22" stroke-width="2"/>
+<text x="655" y="485" font-size="10" fill="#E67E22" text-anchor="end">(via Pico VSYS)</text>
+
+<line x1="740" y1="560" x2="980" y2="560" stroke="#bbb" stroke-width="1" stroke-dasharray="3,3"/>
+
+<!-- MOTOR OUTPUT -->
+<text x="745" y="577" font-size="11" font-weight="bold" fill="#444">MOTOR OUTPUT → GX16-4:</text>
+<text x="745" y="596" font-size="11" fill="#784212">A+  (pin 1)</text>
+<line x1="990" y1="592" x2="1050" y2="592" stroke="#784212" stroke-width="2.5"/>
+<text x="745" y="616" font-size="11" fill="#784212">A−  (pin 2)</text>
+<line x1="990" y1="612" x2="1050" y2="612" stroke="#784212" stroke-width="2.5"/>
+<text x="745" y="636" font-size="11" fill="#1565C0">B+  (pin 3)</text>
+<line x1="990" y1="632" x2="1050" y2="632" stroke="#1565C0" stroke-width="2.5"/>
+<text x="745" y="656" font-size="11" fill="#1565C0">B−  (pin 4)</text>
+<line x1="990" y1="652" x2="1050" y2="652" stroke="#1565C0" stroke-width="2.5"/>
+
+<!-- DIP switch note -->
+<line x1="740" y1="668" x2="980" y2="668" stroke="#bbb" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="745" y="684" font-size="10" fill="#777">Microstep / current: set via DIP switches</text>
+<text x="745" y="698" font-size="10" fill="#777">ENA delay ≥ 200 ms (firmware: 500 ms)</text>
+<text x="745" y="712" font-size="10" fill="#777">DIR setup ≥ 5 µs (firmware: 40 µs)</text>
+
+<!-- ================================================================ -->
+<!-- GX16-4 PANEL SOCKET (motor connector)                            -->
+<!-- ================================================================ -->
+<rect x="1050" y="560" width="200" height="150" rx="6" fill="#EEF4FF" stroke="#2C3E50" stroke-width="2"/>
+<text x="1150" y="582" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">GX16-4 Socket</text>
+<text x="1150" y="599" text-anchor="middle" font-size="11" fill="#555">4-pin aviation (rear panel)</text>
+<text x="1150" y="615" text-anchor="middle" font-size="10" fill="#888">female panel-mount</text>
+<text x="1065" y="635" font-size="11" fill="#784212">Pin 1 = A+</text>
+<line x1="1050" y1="631" x2="1020" y2="631" stroke="#784212" stroke-width="2.5"/>
+<circle cx="1020" cy="631" r="4" fill="#784212"/>
+<text x="1065" y="651" font-size="11" fill="#784212">Pin 2 = A−</text>
+<line x1="1050" y1="647" x2="1020" y2="647" stroke="#784212" stroke-width="2.5"/>
+<circle cx="1020" cy="647" r="4" fill="#784212"/>
+<text x="1065" y="671" font-size="11" fill="#1565C0">Pin 3 = B+</text>
+<line x1="1050" y1="667" x2="1020" y2="667" stroke="#1565C0" stroke-width="2.5"/>
+<circle cx="1020" cy="667" r="4" fill="#1565C0"/>
+<text x="1065" y="691" font-size="11" fill="#1565C0">Pin 4 = B−</text>
+<line x1="1050" y1="687" x2="1020" y2="687" stroke="#1565C0" stroke-width="2.5"/>
+<circle cx="1020" cy="687" r="4" fill="#1565C0"/>
+<!-- wire junction dots on DM542T output wires at GX16-4 -->
+<polyline points="1020,592 1020,631" stroke="#784212" stroke-width="2.5" fill="none"/>
+<polyline points="1020,612 1020,647" stroke="#784212" stroke-width="2.5" fill="none"/>
+<polyline points="1020,632 1020,667" stroke="#1565C0" stroke-width="2.5" fill="none"/>
+<polyline points="1020,652 1020,687" stroke="#1565C0" stroke-width="2.5" fill="none"/>
+
+<!-- Arrow "to motor cable" -->
+<line x1="1250" y1="635" x2="1350" y2="635" stroke="#784212" stroke-width="2.5" marker-end="url(#jdot)"/>
+<text x="1260" y="628" font-size="11" fill="#784212">→ GX16-4 male plug</text>
+<text x="1260" y="650" font-size="11" fill="#784212">   (motor cable)</text>
+
+<!-- ================================================================ -->
+<!-- NEMA 17 STEPPER MOTOR                                            -->
+<!-- ================================================================ -->
+<rect x="1350" y="560" width="220" height="170" rx="6" fill="#ECEFF1" stroke="#2C3E50" stroke-width="2"/>
+<text x="1460" y="582" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">NEMA 17 Motor</text>
+<text x="1460" y="599" text-anchor="middle" font-size="11" fill="#555">bipolar stepper, 0.4 A</text>
+<text x="1365" y="625" font-size="11" fill="#784212">A+ (coil A)</text>
+<text x="1365" y="645" font-size="11" fill="#784212">A− (coil A)</text>
+<text x="1365" y="665" font-size="11" fill="#1565C0">B+ (coil B)</text>
+<text x="1365" y="685" font-size="11" fill="#1565C0">B− (coil B)</text>
+<text x="1460" y="715" text-anchor="middle" font-size="10" fill="#888">via GX16-4 cable</text>
+<!-- arrows from cable -->
+<line x1="1350" y1="621" x2="1300" y2="621" stroke="#784212" stroke-width="2.5"/>
+<text x="1310" y="618" font-size="10" fill="#784212">A+</text>
+<line x1="1350" y1="641" x2="1300" y2="641" stroke="#784212" stroke-width="2.5"/>
+<text x="1310" y="638" font-size="10" fill="#784212">A−</text>
+<line x1="1350" y1="661" x2="1300" y2="661" stroke="#1565C0" stroke-width="2.5"/>
+<text x="1310" y="658" font-size="10" fill="#1565C0">B+</text>
+<line x1="1350" y1="681" x2="1300" y2="681" stroke="#1565C0" stroke-width="2.5"/>
+<text x="1310" y="678" font-size="10" fill="#1565C0">B−</text>
+
+<!-- ================================================================ -->
+<!-- ST7789 DISPLAY (Pimoroni Pico Explorer Base)                     -->
+<!-- ================================================================ -->
+<rect x="50" y="870" width="240" height="195" rx="6" fill="#EEF4FF" stroke="#2C3E50" stroke-width="2"/>
+<text x="170" y="892" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">ST7789 Display</text>
+<text x="170" y="909" text-anchor="middle" font-size="11" fill="#555">240×240 IPS (Pico Explorer)</text>
+<text x="170" y="926" text-anchor="middle" font-size="10" fill="#888">SPI0 bus — no soldering</text>
+<line x1="60" y1="934" x2="280" y2="934" stroke="#bbb" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="65" y="950" font-size="11" fill="#7D3C98">VIN ← 3.3 V (pin 36)</text>
+<line x1="290" y1="946" x2="340" y2="946" stroke="#27AE60" stroke-width="2"/>
+<text x="65" y="967" font-size="11" fill="#7D3C98">GND</text>
+<text x="65" y="984" font-size="11" fill="#7D3C98">CLK ← GPIO 18</text>
+<line x1="290" y1="980" x2="340" y2="980" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="65" y="1001" font-size="11" fill="#7D3C98">MOSI ← GPIO 19</text>
+<line x1="290" y1="997" x2="340" y2="997" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="65" y="1018" font-size="11" fill="#7D3C98">CS ← GPIO 17</text>
+<line x1="290" y1="1014" x2="340" y2="1014" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="65" y="1035" font-size="11" fill="#7D3C98">DC ← GPIO 16</text>
+<line x1="290" y1="1031" x2="340" y2="1031" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3"/>
+<text x="65" y="1052" font-size="11" fill="#7D3C98">BL ← GPIO 20</text>
+<line x1="290" y1="1048" x2="340" y2="1048" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+<!-- SPI bus fan-in (all display wires go right to Pico left side) -->
+<polyline points="340,946 370,946 370,373" stroke="#27AE60" stroke-width="2" fill="none"/>
+<polyline points="340,980 360,980 360,544" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+<polyline points="340,997 358,997 358,561" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+<polyline points="340,1014 356,1014 356,527" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+<polyline points="340,1031 354,1031 354,510" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+<polyline points="340,1048 352,1048 352,578" stroke="#9B59B6" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+
+<!-- ================================================================ -->
+<!-- GATERON KS-33 BUTTONS (UI)                                       -->
+<!-- ================================================================ -->
+
+<!-- BTN-B (top button: settings / home / cycle) -->
+<rect x="370" y="870" width="240" height="110" rx="6" fill="#EEF4FF" stroke="#2C3E50" stroke-width="2"/>
+<text x="490" y="892" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">BTN-B (Gateron KS-33)</text>
+<text x="490" y="909" text-anchor="middle" font-size="11" fill="#555">settings / home / cycle — top button</text>
+<text x="490" y="925" text-anchor="middle" font-size="10" fill="#888">active-low INPUT_PULLUP</text>
+<text x="380" y="950" font-size="11" fill="#1565C0">Signal → GPIO 13 (pin 17)</text>
+<line x1="370" y1="946" x2="335" y2="946" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3"/>
+<polyline points="335,946 335,640 370,640" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+<text x="380" y="968" font-size="11" fill="#1A252F">Other pin → GND</text>
+<line x1="370" y1="964" x2="345" y2="964" stroke="#1A252F" stroke-width="2"/>
+<polyline points="345,964 345,272" stroke="#1A252F" stroke-width="2" fill="none"/>
+<circle cx="345" cy="272" r="4" fill="#1A252F"/>
+
+<!-- BTN-Y (bottom button: start / stop / increment) -->
+<rect x="370" y="1000" width="240" height="110" rx="6" fill="#EEF4FF" stroke="#2C3E50" stroke-width="2"/>
+<text x="490" y="1022" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">BTN-Y (Gateron KS-33)</text>
+<text x="490" y="1039" text-anchor="middle" font-size="11" fill="#555">start / stop / increment — bottom btn</text>
+<text x="490" y="1055" text-anchor="middle" font-size="10" fill="#888">active-low INPUT_PULLUP</text>
+<text x="380" y="1080" font-size="11" fill="#1565C0">Signal → GPIO 15 (pin 20)</text>
+<line x1="370" y1="1076" x2="333" y2="1076" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3"/>
+<polyline points="333,1076 333,674 370,674" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+<text x="380" y="1097" font-size="11" fill="#1A252F">Other pin → GND</text>
+<line x1="370" y1="1093" x2="347" y2="1093" stroke="#1A252F" stroke-width="2"/>
+<polyline points="347,1093 347,272" stroke="#1A252F" stroke-width="2" fill="none"/>
+<circle cx="347" cy="272" r="4" fill="#1A252F"/>
+
+<!-- ================================================================ -->
+<!-- LIMIT SWITCHES (microswitches)                                   -->
+<!-- ================================================================ -->
+
+<!-- SW-X: home-end limit switch -->
+<rect x="50" y="1100" width="240" height="90" rx="6" fill="#FFEBEE" stroke="#C62828" stroke-width="2"/>
+<text x="170" y="1122" text-anchor="middle" font-size="13" font-weight="bold" fill="#C62828">SW-X — Home End</text>
+<text x="170" y="1140" text-anchor="middle" font-size="11" fill="#555">microswitch (GPIO 14)</text>
+<text x="60" y="1163" font-size="11" fill="#1565C0">COM → GPIO 14  NC open</text>
+<line x1="290" y1="1159" x2="325" y2="1159" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3"/>
+<polyline points="325,1159 325,657 370,657" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+<text x="60" y="1180" font-size="11" fill="#1A252F">NO → GND</text>
+<line x1="290" y1="1176" x2="343" y2="1176" stroke="#1A252F" stroke-width="2"/>
+<polyline points="343,1176 343,272" stroke="#1A252F" stroke-width="2" fill="none"/>
+<circle cx="343" cy="272" r="4" fill="#1A252F"/>
+
+<!-- SW-A: far-end limit switch -->
+<rect x="370" y="1140" width="240" height="90" rx="6" fill="#FFEBEE" stroke="#C62828" stroke-width="2"/>
+<text x="490" y="1162" text-anchor="middle" font-size="13" font-weight="bold" fill="#C62828">SW-A — Far End</text>
+<text x="490" y="1180" text-anchor="middle" font-size="11" fill="#555">microswitch (GPIO 12)</text>
+<text x="380" y="1203" font-size="11" fill="#1565C0">COM → GPIO 12  NC open</text>
+<line x1="370" y1="1199" x2="327" y2="1199" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3"/>
+<polyline points="327,1199 327,623 370,623" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+<text x="380" y="1220" font-size="11" fill="#1A252F">NO → GND</text>
+<line x1="370" y1="1216" x2="349" y2="1216" stroke="#1A252F" stroke-width="2"/>
+<polyline points="349,1216 349,272" stroke="#1A252F" stroke-width="2" fill="none"/>
+<circle cx="349" cy="272" r="4" fill="#1A252F"/>
+
+<!-- ================================================================ -->
+<!-- LED DRIVER CIRCUIT (2× 2N2222 on perfboard)                     -->
+<!-- ================================================================ -->
+<rect x="730" y="870" width="330" height="270" rx="6" fill="#FFF8E1" stroke="#F57F17" stroke-width="2"/>
+<text x="895" y="892" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">LED Driver Circuit (perfboard)</text>
+<text x="895" y="909" text-anchor="middle" font-size="11" fill="#555">2× 2N2222 NPN + 2× 1 kΩ</text>
+<text x="895" y="926" text-anchor="middle" font-size="10" fill="#888">GPIO 0/1 (planned — not in firmware yet)</text>
+<line x1="740" y1="934" x2="1050" y2="934" stroke="#bbb" stroke-width="1" stroke-dasharray="3,3"/>
+
+<!-- BTN-B LED circuit -->
+<text x="745" y="952" font-size="11" font-weight="bold" fill="#444">BTN-B LED:</text>
+<text x="745" y="970" font-size="11" fill="#D35400">GPIO 0 → 1kΩ → 2N2222 Base</text>
+<text x="745" y="988" font-size="11" fill="#1A252F">2N2222 Emitter → GND</text>
+<text x="745" y="1006" font-size="11" fill="#784212">2N2222 Collector → LED−</text>
+<text x="745" y="1024" font-size="11" fill="#E67E22">LED+ ← +5 V</text>
+<!-- input wire from Pico GPIO 0 -->
+<line x1="730" y1="966" x2="670" y2="966" stroke="#D35400" stroke-width="1.5" stroke-dasharray="4,3"/>
+<polyline points="670,966 670,720 670,720" stroke="#D35400" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+
+<!-- BTN-Y LED circuit -->
+<line x1="740" y1="1034" x2="1050" y2="1034" stroke="#bbb" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="745" y="1052" font-size="11" font-weight="bold" fill="#444">BTN-Y LED:</text>
+<text x="745" y="1070" font-size="11" fill="#D35400">GPIO 1 → 1kΩ → 2N2222 Base</text>
+<text x="745" y="1088" font-size="11" fill="#1A252F">2N2222 Emitter → GND</text>
+<text x="745" y="1106" font-size="11" fill="#784212">2N2222 Collector → LED−</text>
+<text x="745" y="1124" font-size="11" fill="#E67E22">LED+ ← +5 V</text>
+<!-- input wire from Pico GPIO 1 -->
+<line x1="730" y1="1066" x2="672" y2="1066" stroke="#D35400" stroke-width="1.5" stroke-dasharray="4,3"/>
+<polyline points="672,1066 672,737 670,737" stroke="#D35400" stroke-width="1.5" stroke-dasharray="4,3" fill="none"/>
+
+<!-- ================================================================ -->
+<!-- PANEL-MOUNT USB PORT                                              -->
+<!-- ================================================================ -->
+<rect x="50" y="1240" width="240" height="90" rx="6" fill="#EEF4FF" stroke="#2C3E50" stroke-width="2"/>
+<text x="170" y="1262" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C3E50">Panel-mount Micro-USB</text>
+<text x="170" y="1280" text-anchor="middle" font-size="11" fill="#555">female, solder terminals</text>
+<text x="170" y="1297" text-anchor="middle" font-size="10" fill="#888">(rear panel — firmware upload)</text>
+<text x="170" y="1316" text-anchor="middle" font-size="10" fill="#555">→ micro-B cable → Pico W USB port</text>
+<line x1="290" y1="1278" x2="345" y2="1278" stroke="#555" stroke-width="1.5" stroke-dasharray="3,3"/>
+<polyline points="345,1278 345,780 370,780" stroke="#555" stroke-width="1.5" stroke-dasharray="3,3" fill="none"/>
+
+<!-- ================================================================ -->
+<!-- FIRMWARE NOTES / TIMING CONSTRAINTS box                          -->
+<!-- ================================================================ -->
+<rect x="730" y="1180" width="500" height="185" rx="6" fill="#F3E5F5" stroke="#7B1FA2" stroke-width="1.5"/>
+<text x="980" y="1202" text-anchor="middle" font-size="13" font-weight="bold" fill="#7B1FA2">Timing Constraints (DM542T datasheet)</text>
+<text x="745" y="1222" font-size="11" fill="#333">ENA− asserted LOW → first PUL ≥ 200 ms  (firmware uses 500 ms delay)</text>
+<text x="745" y="1240" font-size="11" fill="#333">DIR stable before PUL ≥ 5 µs  (firmware: setDirectionPin 40 µs)</text>
+<text x="745" y="1258" font-size="11" fill="#333">Pico GPIO = 3.3 V; DM542T min HIGH = 3.5 V</text>
+<text x="745" y="1275" font-size="11" fill="#B71C1C" font-weight="bold">→ Level shifter or 5 V drive (ENA+/DIR+/PUL+ tied to 5 V)</text>
+<text x="745" y="1295" font-size="11" fill="#333">Acceleration: setAcceleration(2147483647) — instant (no ramp)</text>
+<text x="745" y="1315" font-size="11" fill="#333">Motor microstep setting: set via DM542T DIP SW1–SW6</text>
+<text x="745" y="1335" font-size="11" fill="#333">1 step = 2 × 0.9375 µm × cos(angle_deg/2)  [firmware formula]</text>
+<text x="745" y="1355" font-size="11" fill="#555">Planned: Waveshare Pico-ResTouch-LCD-3.5 (firmware pin reassignment pending)</text>
+
+<!-- ================================================================ -->
+<!-- ENCLOSURE NOTE                                                    -->
+<!-- ================================================================ -->
+<rect x="1280" y="870" width="340" height="185" rx="6" fill="#E8F5E9" stroke="#388E3C" stroke-width="1.5"/>
+<text x="1450" y="892" text-anchor="middle" font-size="13" font-weight="bold" fill="#388E3C">Enclosure</text>
+<text x="1295" y="912" font-size="11" fill="#333">Hammond 1455Q2202</text>
+<text x="1295" y="930" font-size="11" fill="#555">220×125×52 mm  aluminum body</text>
+<text x="1295" y="948" font-size="11" fill="#555">plastic end panels (WiFi-transparent)</text>
+<line x1="1290" y1="958" x2="1610" y2="958" stroke="#bbb" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="1295" y="975" font-size="11" font-weight="bold" fill="#444">FRONT panel (122×78 mm aluminum):</text>
+<text x="1295" y="993" font-size="11" fill="#555">• 2× Gateron KS-33 buttons (14×14 mm)</text>
+<text x="1295" y="1011" font-size="11" fill="#555">• ST7789 display opening</text>
+<line x1="1290" y1="1020" x2="1610" y2="1020" stroke="#bbb" stroke-width="1" stroke-dasharray="3,3"/>
+<text x="1295" y="1037" font-size="11" font-weight="bold" fill="#444">REAR panel (plastic):</text>
+<text x="1295" y="1055" font-size="11" fill="#555">• KCD3 rocker switch (22×30 mm)</text>
+<text x="1295" y="1073" font-size="11" fill="#555">• Schurter IEC C14 inlet + fuse</text>
+<text x="1295" y="1091" font-size="11" fill="#555">• GX16-4 motor connector  • Micro-USB</text>
+
+<!-- ================================================================ -->
+<!-- WIRING SUMMARY NOTE                                               -->
+<!-- ================================================================ -->
+<rect x="1280" y="1080" width="340" height="190" rx="6" fill="#FFF9C4" stroke="#F9A825" stroke-width="1.5"/>
+<text x="1450" y="1102" text-anchor="middle" font-size="13" font-weight="bold" fill="#444">Internal Wiring Summary</text>
+<text x="1295" y="1122" font-size="11" fill="#555">Mains (1.5 mm²): IEC → rocker → PSU</text>
+<text x="1295" y="1140" font-size="11" fill="#555">DC 24 V (screw terminals): PSU → DM542T</text>
+<text x="1295" y="1158" font-size="11" fill="#555">DC 5 V (~3 solder joints): TSR → Pico VSYS</text>
+<text x="1295" y="1176" font-size="11" fill="#555">Stepper ctrl (Dupont M-F): DM542T → Pico</text>
+<text x="1295" y="1194" font-size="11" fill="#555">Display (Dupont M-F): SPI0 wires × 7</text>
+<text x="1295" y="1212" font-size="11" fill="#555">Buttons: short wires → Pico header</text>
+<text x="1295" y="1230" font-size="11" fill="#555">LED circuit (~4 joints): 2N2222 on perfboard</text>
+<text x="1295" y="1248" font-size="11" fill="#555">Motor (4 solder joints): DM542T → GX16-4</text>
+<text x="1295" y="1270" font-size="11" font-weight="bold" fill="#333">Total: ~11 solder joints</text>
+
+<!-- ================================================================ -->
+<!-- BORDER                                                            -->
+<!-- ================================================================ -->
+<rect x="2" y="2" width="1896" height="1396" rx="6" fill="none" stroke="#ccc" stroke-width="2"/>
+
+</svg>
