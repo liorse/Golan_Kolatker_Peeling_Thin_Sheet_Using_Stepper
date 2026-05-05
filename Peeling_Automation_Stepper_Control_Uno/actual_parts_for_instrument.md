@@ -21,8 +21,8 @@
 | Enclosure | Hammond 1455Q2202 — 220×125×52mm aluminum body, plastic end panels (RF-transparent for Pico W WiFi) |
 | AC switching | Illuminated rocker switch on front panel (mains-rated, 250V/10A) |
 | IEC inlet | Rear panel, IEC C14 + integrated fuse holder, 1A T slow-blow fuse |
-| Display | Standalone ST7789 1.3" 240×240 SPI module, mounted in 3D-printed bezel |
-| UI buttons | 2× 16mm metal illuminated momentary pushbutton (5V LED): black (B), green (Y) |
+| Display | Adafruit 2.8" 240×320 ILI9341 SPI (#1770) — firmware driver swap ST7789→ILI9341 needed, active area ~57×43mm |
+| UI buttons | 2× Gateron KS-33 LP Brown (tactile) + low-profile MX keycaps, 14×14mm plate cutout, snap into 1.5mm aluminum panel |
 | Button illumination | State-controlled via GPIO 6 (B-LED) and GPIO 7 (Y-LED) through 2N2222 transistors |
 | Stepper output | GX16-4 aviation connector, 4-pin, female panel-mount on rear |
 | Motor cable end | GX16-4 male plug (A+/A−/B+/B−) |
@@ -51,10 +51,10 @@
 | Part | MPN | Spec | Source | ~Cost |
 |---|---|---|---|---|
 | [KCD3 rocker switch](https://www.aliexpress.com/w/wholesale-kcd3-rocker-switch.html) | KCD3 | 22×30mm cutout, 250V/10A, illuminated | [AliExpress](https://www.aliexpress.com/w/wholesale-kcd3-rocker-switch.html) | $3 |
-| [ST7789 1.3" 240×240 module](https://www.waveshare.com/1.3inch-lcd-module.htm) | 1.3inch LCD Module | SPI, documented PCB dimensions | [Waveshare](https://www.waveshare.com/1.3inch-lcd-module.htm) / [Amazon](https://www.amazon.com/1-3inch-LCD-Module-IPS-Communicating/dp/B07VJ63F98) | $10 |
-| [16mm metal pushbutton, black](https://www.aliexpress.com/item/4001291695467.html) | — (generic) | Momentary, 5V LED, illuminated (Button B) | [AliExpress](https://www.aliexpress.com/item/4001291695467.html) | $5 |
-| [16mm metal pushbutton, green](https://www.aliexpress.com/item/4001291695467.html) | — (generic) | Momentary, 5V LED, illuminated (Button Y) | [AliExpress](https://www.aliexpress.com/item/4001291695467.html) | $5 |
-| [Front Panel Express panel](https://www.frontpanelexpress.com/) | — (custom) | 122×78mm custom-printed aluminum | [frontpanelexpress.com](https://www.frontpanelexpress.com/) | ~$40 |
+| [Adafruit 2.8" 240×320 TFT LCD](https://www.adafruit.com/product/1770) | Adafruit #1770 | ILI9341 driver, SPI, 82×64mm PCB, active area ~57×43mm — firmware driver swap ST7789→ILI9341 needed | [Adafruit](https://www.adafruit.com/product/1770) / [DigiKey](https://www.digikey.com/en/products/detail/adafruit-industries-llc/1770/5875815) | $30 |
+| [Gateron KS-33 LP 2.0 Brown (35pcs)](https://www.gateron.com/products/gateron-ks-33-low-profile-switch-set) | KS-33 Brown | Low-profile tactile, 14×14mm plate cutout, SMD LED slot, 1.5mm plate snap-in | [Gateron](https://www.gateron.com/products/gateron-ks-33-low-profile-switch-set) / [Amazon](https://www.amazon.com/GATERON-Switches-Pre-lubed-Mechanical-Keyboard/dp/B0BZYHJ9XB) | ~$15 (35pcs, need 2) |
+| Low-profile MX keycaps 1U blank (×2) | — (generic) | LP MX stem, fits KS-33 — e.g. Nuphy or Keychron LP caps | [Amazon](https://www.amazon.com/s?k=low+profile+mx+keycap+1u+blank) / [Keychron](https://www.keychron.com) | ~$5 |
+| [Front Panel Express panel](https://www.frontpanelexpress.com/) | — (custom) | 122×78mm, **1.5mm aluminum** (required for MX snap-in mount) | [frontpanelexpress.com](https://www.frontpanelexpress.com/) | ~$40 |
 
 ### Rear Panel
 | Part | MPN | Spec | Source | ~Cost |

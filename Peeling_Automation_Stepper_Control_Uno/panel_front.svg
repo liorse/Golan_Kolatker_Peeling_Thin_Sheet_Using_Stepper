@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Front panel: 122 × 78 mm. Scale: 4 px/mm
+     Layout (L→R): BTN-B (top) + BTN-Y (bottom) | DISPLAY 2.8" | PWR rocker
+     Margins/gaps: 7 | 14(BTN) | 5 | 57(DISP) | 5 | 22(PWR) | 12 = 122 mm
+     BTN centre x=14mm  DISP centre x=54.5mm  PWR centre x=99mm
+     Switch cutout: 14×14mm square, 1.5mm aluminum panel (snap-in)
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="568" height="430"
+     viewBox="-24 -50 568 430">
+
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#444"/>
+    </marker>
+    <linearGradient id="keycap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#e0e0e0"/>
+      <stop offset="40%"  stop-color="#c8c8c8"/>
+      <stop offset="100%" stop-color="#a0a0a0"/>
+    </linearGradient>
+    <linearGradient id="keycapB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#ddeedd"/>
+      <stop offset="40%"  stop-color="#aaccaa"/>
+      <stop offset="100%" stop-color="#88aa88"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ── Panel body (1.5mm aluminium) ── -->
+  <rect x="0" y="0" width="488" height="312"
+        fill="#c8c8c8" stroke="#888" stroke-width="2"/>
+
+  <!-- ── Corner screw holes M3 ── -->
+  <circle cx="24"  cy="24"  r="12" fill="white" stroke="#555" stroke-width="1.5"/>
+  <circle cx="464" cy="24"  r="12" fill="white" stroke="#555" stroke-width="1.5"/>
+  <circle cx="24"  cy="288" r="12" fill="white" stroke="#555" stroke-width="1.5"/>
+  <circle cx="464" cy="288" r="12" fill="white" stroke="#555" stroke-width="1.5"/>
+
+  <!-- ══════════════════════════════════════════════
+       BTN-B — Gateron KS-33 LP Brown, top
+       Centre: x=14mm, y=20mm → px (56, 80)
+       Cutout: 14×14mm → 56×56px
+       UI label: GO / STOP / +  (GPIO 12)
+  ══════════════════════════════════════════════ -->
+  <rect x="28" y="52" width="56" height="56"
+        fill="white" stroke="#333" stroke-width="2" stroke-dasharray="5,3"/>
+  <rect x="32" y="56" width="48" height="48" fill="#555" opacity="0.25" rx="2"/>
+  <rect x="25" y="46" width="62" height="62" fill="url(#keycapB)" rx="5"
+        stroke="#7a9a7a" stroke-width="1.5"/>
+  <rect x="29" y="50" width="54" height="54" fill="none"
+        stroke="#aaccaa" stroke-width="1" rx="3" opacity="0.6"/>
+  <rect x="37" y="58" width="38" height="38" fill="#88ff88" opacity="0.12" rx="2"/>
+
+  <text x="56" y="130" text-anchor="middle"
+        font-family="sans-serif" font-size="13" font-weight="bold" fill="#222">BTN-B</text>
+  <text x="56" y="145" text-anchor="middle"
+        font-family="sans-serif" font-size="11" fill="#555">GO / STOP / +</text>
+  <text x="56" y="159" text-anchor="middle"
+        font-family="sans-serif" font-size="10" fill="#888">GPIO 12 · KS-33</text>
+
+  <line x1="28" y1="36" x2="84" y2="36" stroke="#444" stroke-width="1"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="56" y="32" text-anchor="middle"
+        font-family="sans-serif" font-size="10" fill="#444">14 mm</text>
+
+  <!-- ══════════════════════════════════════════════
+       BTN-Y — Gateron KS-33 LP Brown, bottom
+       Centre: x=14mm, y=58mm → px (56, 232)
+       Cutout: 14×14mm → 56×56px
+       UI label: SET / HOME / NEXT  (GPIO 13)
+  ══════════════════════════════════════════════ -->
+  <rect x="28" y="204" width="56" height="56"
+        fill="white" stroke="#333" stroke-width="2" stroke-dasharray="5,3"/>
+  <rect x="32" y="208" width="48" height="48" fill="#555" opacity="0.25" rx="2"/>
+  <rect x="25" y="198" width="62" height="62" fill="url(#keycap)" rx="5"
+        stroke="#999" stroke-width="1.5"/>
+  <rect x="29" y="202" width="54" height="54" fill="none"
+        stroke="#ddd" stroke-width="1" rx="3" opacity="0.6"/>
+
+  <text x="56" y="282" text-anchor="middle"
+        font-family="sans-serif" font-size="13" font-weight="bold" fill="#222">BTN-Y</text>
+  <text x="56" y="297" text-anchor="middle"
+        font-family="sans-serif" font-size="11" fill="#555">SET / HOME / NEXT</text>
+  <text x="56" y="311" text-anchor="middle"
+        font-family="sans-serif" font-size="10" fill="#888">GPIO 13 · KS-33</text>
+
+  <!-- ══════════════════════════════════════════════
+       DISPLAY — Adafruit 2.8" 240×320 ILI9341
+       Centre: x=54.5mm, y=39mm → px (218, 156)
+       Active area ~57×43mm → 228×172px
+  ══════════════════════════════════════════════ -->
+  <rect x="104" y="70" width="228" height="172"
+        fill="white" stroke="#333" stroke-width="2" stroke-dasharray="5,3"/>
+  <rect x="106" y="72" width="224" height="168" fill="#0d1117" rx="2"/>
+  <!-- top-left on-screen label (BTN-B = GO) -->
+  <rect x="111" y="77" width="44" height="22" fill="#1e3a1e" rx="2"/>
+  <text x="133" y="92" text-anchor="middle"
+        font-family="monospace" font-size="12" font-weight="bold" fill="#44ff44">GO</text>
+  <!-- bottom-left on-screen label (BTN-Y = SET) -->
+  <rect x="111" y="214" width="44" height="22" fill="#1e3a1e" rx="2"/>
+  <text x="133" y="229" text-anchor="middle"
+        font-family="monospace" font-size="12" font-weight="bold" fill="#44ff44">SET</text>
+  <!-- centre hint text -->
+  <text x="218" y="150" text-anchor="middle"
+        font-family="sans-serif" font-size="11" fill="#555">Adafruit #1770</text>
+  <text x="218" y="165" text-anchor="middle"
+        font-family="sans-serif" font-size="11" fill="#555">2.8" ILI9341 240×320</text>
+
+  <text x="218" y="262" text-anchor="middle"
+        font-family="sans-serif" font-size="13" font-weight="bold" fill="#222">DISPLAY</text>
+  <text x="218" y="277" text-anchor="middle"
+        font-family="sans-serif" font-size="10" fill="#888">~57×43 mm (measure before ordering)</text>
+
+  <!-- display width dimension -->
+  <line x1="104" y1="36" x2="332" y2="36" stroke="#444" stroke-width="1"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="218" y="32" text-anchor="middle"
+        font-family="sans-serif" font-size="10" fill="#444">~57 mm</text>
+
+  <!-- ══════════════════════════════════════════════
+       PWR rocker — KCD3 22×30mm, right side
+       Centre: x=99mm, y=39mm → px (396, 156)
+  ══════════════════════════════════════════════ -->
+  <rect x="352" y="96" width="88" height="120"
+        fill="white" stroke="#333" stroke-width="2" stroke-dasharray="5,3"/>
+  <rect x="358" y="102" width="76" height="108" fill="#444" rx="4"/>
+  <rect x="362" y="106" width="68" height="48" fill="#222" rx="2"/>
+  <rect x="362" y="158" width="68" height="48" fill="#666" rx="2"/>
+  <text x="396" y="137" text-anchor="middle"
+        font-family="sans-serif" font-size="18" fill="#aaa">&#x23FB;</text>
+
+  <text x="396" y="238" text-anchor="middle"
+        font-family="sans-serif" font-size="13" font-weight="bold" fill="#222">PWR</text>
+  <text x="396" y="253" text-anchor="middle"
+        font-family="sans-serif" font-size="11" fill="#555">KCD3 · 22×30 mm</text>
+
+  <!-- PWR width dimension -->
+  <line x1="352" y1="36" x2="440" y2="36" stroke="#444" stroke-width="1"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="396" y="32" text-anchor="middle"
+        font-family="sans-serif" font-size="10" fill="#444">22 mm</text>
+
+  <!-- ── Overall dimensions ── -->
+  <line x1="0" y1="-20" x2="488" y2="-20" stroke="#444" stroke-width="1.5"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="244" y="-26" text-anchor="middle"
+        font-family="sans-serif" font-size="14" fill="#444">122 mm</text>
+
+  <line x1="-16" y1="0" x2="-16" y2="312" stroke="#444" stroke-width="1.5"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="-20" y="160" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#444"
+        transform="rotate(-90,-20,160)">78 mm</text>
+
+  <!-- ── Title ── -->
+  <text x="244" y="345" text-anchor="middle"
+        font-family="sans-serif" font-size="18" font-weight="bold" fill="#222">
+    Front Panel — 122 × 78 mm
+  </text>
+  <text x="244" y="363" text-anchor="middle"
+        font-family="sans-serif" font-size="13" fill="#666">
+    Hammond 1455Q2202 · 1.5 mm aluminium · Front Panel Express
+  </text>
+  <text x="244" y="380" text-anchor="middle"
+        font-family="sans-serif" font-size="11" fill="#999">
+    Dashed = cutouts · Keycap renders are Gateron KS-33 LP Brown · Screen corners = live UI labels
+  </text>
+</svg>
