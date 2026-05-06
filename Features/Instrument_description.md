@@ -79,7 +79,7 @@ CAL ──[Y]──────────────────────�
 | MOVING_TO_START | STOP | — |
 | PEELING | STOP | — |
 | HOMING | STOP | — |
-| SETTINGS | (increment) | (cycle/decrement) |
+| SETTINGS | + (or CAL on CAL field) | NEXT/- (short=cycle, long=decrement) |
 | CAL | START/ABORT | — |
 
 ---
@@ -158,6 +158,8 @@ All values saved when settings menu exits (B cycles past CAL back to IDLE).
 ### Settings screen
 
 Active field highlighted in yellow; others in cyan. Value shown large (size 2) with field name above it (size 1).
+
+A hint line `"tap=NEXT  hold=-"` (textSize 1, cyan) is displayed at y=56 between the title and the first field. It disappears when the CAL field is active (long-press B has no effect there) and reappears on all other fields.
 
 ---
 

@@ -426,20 +426,23 @@ void onButtonRepeat(int idx) {
 // =============================================================================
 // Display helpers
 // =============================================================================
-void drawButtonBox(int16_t x, int16_t y, const char *label, bool pressed) {
+void drawButtonBox(int16_t x, int16_t y, const char *label, bool pressed, uint8_t sz = 2) {
   uint16_t bg = pressed ? ST77XX_WHITE : ST77XX_BLACK;
   uint16_t fg = pressed ? ST77XX_BLACK : ST77XX_CYAN;
   tft.fillRoundRect(x, y, BTN_W, BTN_H, 4, bg);
   tft.drawRoundRect(x, y, BTN_W, BTN_H, 4, ST77XX_CYAN);
-  tft.setTextSize(2);
+  tft.setTextSize(sz);
   tft.setTextColor(fg, bg);
   int len = strlen(label);
-  tft.setCursor(x + (BTN_W - len * 12) / 2, y + (BTN_H - 16) / 2);
+  int cw  = (sz == 1) ? 6 : 12;
+  int ch  = (sz == 1) ? 8 : 16;
+  tft.setCursor(x + (BTN_W - len * cw) / 2, y + (BTN_H - ch) / 2);
   tft.print(label);
 }
 
 void updateButtons() {
-  char aLbl[8], bLbl[8];
+  char    aLbl[8], bLbl[8];
+  uint8_t bSz = 2;
 
   switch (appState) {
     case IDLE:
@@ -448,7 +451,8 @@ void updateButtons() {
       break;
     case SETTINGS:
       strcpy(aLbl, settingsField == FIELD_CAL ? "CAL" : "+");
-      strcpy(bLbl, "NEXT");
+      strcpy(bLbl, "NEXT/-");
+      bSz = 1;
       break;
     default:
       strcpy(aLbl, "STOP");
@@ -457,10 +461,10 @@ void updateButtons() {
   }
 
   // Physical layout (setRotation 2): A=top-left, X=top-right, B=bottom-left, Y=bottom-right
-  drawButtonBox(BTN_LEFT_X,  BTN_TOP_Y, aLbl,  btnDown[IDX_A]);  // top-left  = A (UI)
-  drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, "X",   btnDown[IDX_X]);  // top-right = X (limit)
-  drawButtonBox(BTN_LEFT_X,  BTN_BOT_Y, bLbl,  btnDown[IDX_B]);  // bot-left  = B (UI)
-  drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, "Y",   btnDown[IDX_Y]);  // bot-right = Y (limit)
+  drawButtonBox(BTN_LEFT_X,  BTN_TOP_Y, aLbl,  btnDown[IDX_A]);       // top-left  = A (UI)
+  drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, "X",   btnDown[IDX_X]);       // top-right = X (limit)
+  drawButtonBox(BTN_LEFT_X,  BTN_BOT_Y, bLbl,  btnDown[IDX_B], bSz); // bot-left  = B (UI)
+  drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, "Y",   btnDown[IDX_Y]);       // bot-right = Y (limit)
 }
 
 void clearContent() {
@@ -641,6 +645,17 @@ void drawSettingsField(int idx, bool active) {
   }
 }
 
+void drawSettingsHint(int fieldIdx) {
+  tft.fillRect(0, 54, SCREEN_W, 12, ST77XX_BLACK);
+  if (fieldIdx != FIELD_CAL) {
+    const char *hint = "tap=NEXT  hold=-";
+    tft.setTextSize(1);
+    tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+    tft.setCursor((SCREEN_W - (int)strlen(hint) * 6) / 2, 56);
+    tft.print(hint);
+  }
+}
+
 void updateSettingsContent() {
   if (!settingsDirty) return;
   settingsDirty = false;
@@ -654,6 +669,7 @@ void updateSettingsContent() {
     tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     tft.setCursor((SCREEN_W - 8 * 12) / 2, STATE_Y);
     tft.print("SETTINGS");
+    drawSettingsHint(curIdx);
     for (int i = 0; i < 4; i++) drawSettingsField(i, i == curIdx);
     char  vbuf[24];
     float dist_xa_um = stepsToUm(dist_xa_steps);
@@ -671,6 +687,7 @@ void updateSettingsContent() {
     // Active field changed: redraw old (now inactive) and new (now active) rows only
     drawSettingsField(prevSettingsFieldIdx, false);
     drawSettingsField(curIdx, true);
+    drawSettingsHint(curIdx);
   } else {
     // Same field, value changed: redraw active row only
     drawSettingsField(curIdx, true);
