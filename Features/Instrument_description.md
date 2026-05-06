@@ -20,11 +20,12 @@
 
 ## Unit Conversion
 
-- **Step size:** 1 step = 0.9375 µm (measured)
-- **Angle:** user-set tilt of stage in degrees (0–89°; 90° disallowed — cos(90°) = 0)
-- **Distance formula:** `distance_µm = steps × 0.9375 × cos(angle_rad)`
-- **Speed formula:** `speed_µm_s = steps_per_s × 0.9375 × cos(angle_rad)`
-- **Inverse (µm → steps):** `steps = distance_µm / (0.9375 × cos(angle_rad))`
+- **Step size:** 1 step = 0.9375 µm (motor displacement `d`)
+- **Angle:** θ — user-set peeling angle in degrees (0–89°; 90° disallowed — cos(45°) ≠ 0 but cos(90°/2) approaches singularity at high angles; clamped to 89°)
+- **Physical relation:** `d = 2 × L × cos(θ/2)` where `L` is true peeling displacement
+- **Distance formula:** `L_µm = steps × 0.9375 / (2 × cos(θ/2))`
+- **Speed formula:** `speed_µm_s = steps_per_s × 0.9375 / (2 × cos(θ/2))`
+- **Inverse (µm → steps):** `steps = L_µm × 2 × cos(θ/2) / 0.9375`
 
 ---
 
@@ -99,8 +100,8 @@ Exiting CAL field (B cycles past it) returns to IDLE and auto-saves all settings
 
 ## Motor Control Details
 
-- **Homing speed:** 100 steps/s (≈ 93.75 µm/s at 0°)
-- **MOVING_TO_START speed:** 100 steps/s
+- **Homing speed:** 1067 steps/s (≈ 500 µm/s = 0.5 mm/s at θ=0°)
+- **MOVING_TO_START speed:** 1067 steps/s (same as homing)
 - **Peeling speed:** set by user (1–1000 µm/s), converted to steps/s
 - **Transition at start position:** motor stops, 100 ms pause, then begins peeling
 - **Acceleration:** `setAcceleration(2147483647)` — instant (no ramp)

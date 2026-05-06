@@ -38,9 +38,10 @@
 //
 // UNIT CONVERSION
 // ---------------
-//   1 step = 2 × 0.9375 µm × cos(angle_deg / 2)
-//   distance_µm  = steps    × 2 × 0.9375 × cos(angle_deg/2 in rad)
-//   speed_µm_s   = steps/s  × 2 × 0.9375 × cos(angle_deg/2 in rad)
+//   d = 2 × L × cos(θ/2)  →  L = d / (2 × cos(θ/2))
+//   d (motor)    = steps × 0.9375 µm
+//   L (peel)     = steps × 0.9375 / (2 × cos(θ/2))
+//   speed_µm_s   = steps/s × 0.9375 / (2 × cos(θ/2))
 //
 // STATE MACHINE
 // -------------
@@ -113,7 +114,7 @@
 
 // ---- Physical constants -----------------------------------------------------
 #define MICRONS_PER_STEP  0.9375f
-#define CAL_SPEED_HZ      1067    // ≈ 1 mm/s at 0° (both CAL phases)
+#define CAL_SPEED_HZ      1067    // ≈ 0.5 mm/s at θ=0° (both CAL phases)
 
 // ---- FastAccelStepper -------------------------------------------------------
 FastAccelStepperEngine engine = FastAccelStepperEngine();
@@ -178,6 +179,13 @@ unsigned long btnRepeatAt[4]  = {};
 const unsigned long LONG_PRESS_MS = 500;
 const unsigned long REPEAT_MS     = 100;
 
+// ---- Limit switch edge detection (for safety abort in moving states) --------
+bool          limitXPrev     = false;
+bool          limitYPrev     = false;
+unsigned long limitXStableAt = 0;
+unsigned long limitYStableAt = 0;
+const unsigned long LIMIT_DEBOUNCE_MS = 2;
+
 // ---- Warning overlay --------------------------------------------------------
 unsigned long warningUntil = 0;
 
@@ -196,7 +204,7 @@ int  prevSettingsFieldIdx = -1;  // -1 = first draw needed
 // Unit conversion
 // =============================================================================
 float stepToUmFactor() {
-  return 2.0f * cosf((float)angle_deg * (float)M_PI / 360.0f);
+  return 1.0f / (2.0f * cosf((float)angle_deg * (float)M_PI / 360.0f));
 }
 
 float stepsToUm(int32_t steps) {
@@ -777,13 +785,30 @@ void loop() {
   if (btnChanged) updateButtons();
 
   // ---- Limit switch polling (X = home end, Y = far end) -----------------------
+  bool curLimX = !digitalRead(BTN_X);
+  bool curLimY = !digitalRead(BTN_Y);
+
+  // Edge + debounce for MOVING safety abort: a switch may already be pressed when
+  // a new move is commanded (e.g. right after homing), so level-only detection
+  // would abort the move before the motor escapes the switch.
+  if  (curLimX && !limitXPrev) limitXStableAt = now;
+  else if (!curLimX)            limitXStableAt = 0;
+  if  (curLimY && !limitYPrev) limitYStableAt = now;
+  else if (!curLimY)            limitYStableAt = 0;
+  bool xNewPress = curLimX && limitXStableAt > 0 && (now - limitXStableAt) >= LIMIT_DEBOUNCE_MS;
+  bool yNewPress = curLimY && limitYStableAt > 0 && (now - limitYStableAt) >= LIMIT_DEBOUNCE_MS;
+  if (xNewPress) limitXStableAt = 0;   // consume: fire once per press
+  if (yNewPress) limitYStableAt = 0;
+  limitXPrev = curLimX;
+  limitYPrev = curLimY;
+
   if (appState == HOMING || appState == CAL_HOMING) {
-    if (!digitalRead(BTN_X)) {                  // home-end switch triggered
+    if (curLimX) {                              // home-end switch triggered
       stepper->forceStop();
       while (stepper->isRunning()) {}           // wait for PIO to flush buffered steps
       stepper->setCurrentPosition(0);
       if (appState == CAL_HOMING) {
-        stepper->setSpeedInHz(CAL_SPEED_HZ);    // 5 mm/s toward far end
+        stepper->setSpeedInHz(CAL_SPEED_HZ);
         stepper->runForward();
         appState = CAL_RUNNING;
       } else {
@@ -793,7 +818,7 @@ void loop() {
       updateButtons();
     }
   } else if (appState == CAL_RUNNING) {
-    if (!digitalRead(BTN_Y)) {                  // far-end switch triggered
+    if (curLimY) {                              // far-end switch triggered
       dist_xa_steps = stepper->getCurrentPosition();
       stepper->forceStop();
       disableMotor();
@@ -802,7 +827,7 @@ void loop() {
       updateButtons();
     }
   } else if (appState == MOVING || appState == MOVING_TO_START || appState == PEELING) {
-    if (!digitalRead(BTN_X) || !digitalRead(BTN_Y)) {  // either limit hit = safety stop
+    if (xNewPress || yNewPress) {               // new contact only — not a stale press
       abortAndIdle();
       updateButtons();
     }
