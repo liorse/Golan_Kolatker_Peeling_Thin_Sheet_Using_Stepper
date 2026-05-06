@@ -1,6 +1,11 @@
 # Peeling Instrument — Build Specification
 
 ## Original Requirements
+this is an interesting option for a display:
+https://www.adafruit.com/product/3787
+
+also a good option:
+https://www.adafruit.com/product/4311
 
 1. A professional-looking box containing the power supply, Pico W (WiFi), and stepper driver.
 2. Box inputs: power button (24V rail + 5V Pico), two UI buttons, USB connector for firmware updates, 220V socket.
