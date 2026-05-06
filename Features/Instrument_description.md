@@ -106,7 +106,7 @@ Exiting CAL field (B cycles past it) returns to IDLE and auto-saves all settings
 - **Transition at start position:** motor stops, 100 ms pause, then begins peeling
 - **Acceleration:** `setAcceleration(2147483647)` — instant (no ramp)
 - **ENA- timing:** `enableOutputs()` + 500 ms delay before first move (DM542T datasheet requirement); not repeated if motor is already enabled
-- **Limit detection:** polling in `loop()` (reaction time ~1 ms at 100 steps/s → < 0.1 µm overshoot)
+- **Limit detection:** polling in `loop()` (reaction time ~1 ms at 100 steps/s → < 0.1 µm overshoot); MOVING / MOVING_TO_START / PEELING states use falling-edge + 2 ms debounce (`xNewPress`/`yNewPress`) so a switch already held from a previous home or cal run does not abort the next move before the motor escapes; HOMING / CAL_HOMING retain level detection
 
 ---
 
