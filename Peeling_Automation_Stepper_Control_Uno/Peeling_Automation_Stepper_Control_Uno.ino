@@ -2,8 +2,8 @@
 // Project   : Peeling Thin Sheet Using Stepper Motor — Raspberry Pi Pico Controller
 // File      : Peeling_Automation_Stepper_Control_Uno.ino
 // Author    : Lior Segev
-// Version   : 4.0.0
-// Date      : May 3, 2026
+// Version   : 4.1.0
+// Date      : May 6, 2026
 // =============================================================================
 //
 // OVERVIEW
@@ -39,26 +39,26 @@
 // UNIT CONVERSION
 // ---------------
 //   d = 2 × L × cos(θ/2)  →  L = d / (2 × cos(θ/2))
-//   d (motor)    = steps × 0.9375 µm
-//   L (peel)     = steps × 0.9375 / (2 × cos(θ/2))
-//   speed_µm_s   = steps/s × 0.9375 / (2 × cos(θ/2))
+//   d (motor)    = steps × (1500 / steps_per_rev) µm
+//   L (peel)     = steps × (1500 / steps_per_rev) / (2 × cos(θ/2))
+//   speed_µm_s   = steps/s × (1500 / steps_per_rev) / (2 × cos(θ/2))
 //
 // STATE MACHINE
 // -------------
-//   IDLE → [Y, dist_xa>0] → MOVING_TO_START → [arrival+100ms] → PEELING
-//   IDLE → [Y, dist_xa=0] → show warning "RUN CAL FIRST"
-//   IDLE → [B, pos=0]     → SETTINGS  (cycles: angle→speed→start→CAL→IDLE+save)
+//   IDLE → [A, dist_xa>0] → MOVING_TO_START → [arrival+100ms] → PEELING
+//   IDLE → [A, dist_xa=0] → show warning "RUN CAL FIRST"
+//   IDLE → [B, pos=0]     → SETTINGS  (cycles: speed→angle→start→steps→CAL→IDLE+save)
 //   IDLE → [B, pos>0]     → HOMING
-//   PEELING → [Y or A limit] → IDLE
+//   PEELING → [A or X limit] → IDLE
 //   HOMING  → [X limit]      → IDLE (pos := 0)
-//   SETTINGS/CAL field → [Y] → CAL_HOMING → CAL_RUNNING → IDLE (saves dist_xa)
-//   Any moving state → [Y]   → IDLE (abort)
+//   SETTINGS/CAL field → [A] → CAL_HOMING → CAL_RUNNING → IDLE (saves dist_xa)
+//   Any moving state → [A]   → IDLE (abort)
 //
 // SERIAL INTERFACE  (115200 baud)
 // --------------------------------
 //   Commands: 'm'<int32> move to step pos, 's' stop, 'v'<int> set Hz
 //   Heartbeat every 100 ms:
-//     {"state":N,"position":N,"speed":N,"pos_um":F,"speed_um":F,"angle":N}
+//     {"state":N,"position":N,"speed":N,"pos_um":F,"speed_um":F,"angle":N,"spr":N}
 // =============================================================================
 
 #include <FastAccelStepper.h>
@@ -113,8 +113,9 @@
 #define BAR_H      12
 
 // ---- Physical constants -----------------------------------------------------
-#define MICRONS_PER_STEP  0.9375f
-#define CAL_SPEED_HZ      1067    // ≈ 0.5 mm/s at θ=0° (both CAL phases)
+// 1 full motor revolution = 1.5 mm linear travel.
+// Step size = 1500 / steps_per_rev µm  (runtime variable: microns_per_step).
+// CAL speed targets ≈1 mm/s at motor; calSpeedHz() computes this dynamically.
 
 // ---- FastAccelStepper -------------------------------------------------------
 FastAccelStepperEngine engine = FastAccelStepperEngine();
@@ -124,12 +125,13 @@ FastAccelStepper       *stepper = NULL;
 Adafruit_ST7789 tft = Adafruit_ST7789(&SPI, TFT_CS, TFT_DC, TFT_RST);
 
 // ---- Persistent storage -----------------------------------------------------
-#define EEPROM_MAGIC  0x50454C31u   // "PEL1"
+#define EEPROM_MAGIC  0x50454C32u   // "PEL2" — bumped when steps_per_rev was added
 #define EEPROM_ADDR   0
 #define EEPROM_SIZE   64
 
 struct SavedSettings {
   uint32_t magic;
+  int      steps_per_rev;
   int      angle_deg;
   float    speed_um_s;
   float    start_pos_um;
@@ -149,20 +151,26 @@ enum AppState {
 };
 AppState appState = IDLE;
 
-enum SettingsField { FIELD_ANGLE, FIELD_SPEED, FIELD_START, FIELD_CAL };
-SettingsField settingsField = FIELD_ANGLE;
+enum SettingsField { FIELD_SPEED, FIELD_ANGLE, FIELD_START, FIELD_STEPS, FIELD_CAL };
+SettingsField settingsField = FIELD_SPEED;
+
+// ---- Valid microstep options (must match DM542T DIP switch settings) ---------
+const int STEPS_OPTIONS[]  = { 200, 400, 800, 1600, 3200, 6400, 12800, 25600 };
+const int STEPS_OPTIONS_N  = 8;
 
 // ---- User-configurable values -----------------------------------------------
-int     angle_deg     = 30;
-float   speed_um_s    = 1.0f;
-float   start_pos_um  = 0.0f;
-int32_t dist_xa_steps = 0;      // calibrated X→A distance in steps (0 = uncalibrated)
+int     steps_per_rev  = 1600;       // must match DM542T DIP switches
+float   microns_per_step = 0.9375f;  // computed: 1500 / steps_per_rev
+int     angle_deg      = 30;
+float   speed_um_s     = 1.0f;
+float   start_pos_um   = 0.0f;
+int32_t dist_xa_steps  = 0;          // calibrated X→A distance in steps (0 = uncalibrated)
 
 // ---- Motor state ------------------------------------------------------------
 bool motorEnabled = false;
 
 // ---- Peel sequencing --------------------------------------------------------
-unsigned long startPeelAt = 0;  // millis() target for MOVING_TO_START→PEELING (0=not armed)
+unsigned long startPeelAt   = 0;   // millis() target for MOVING_TO_START→PEELING (0=not armed)
 unsigned long peel_start_ms = 0;
 
 // ---- Button tracking --------------------------------------------------------
@@ -194,31 +202,41 @@ unsigned long previousMillis = 0;
 const unsigned long HEARTBEAT_MS = 100;
 
 // ---- Screen mode tracking (for clean transitions) ---------------------------
-bool inSettingsScreen    = false;
-bool settingsDirty       = true;
-bool justEnteredSettings = false;
-int  prevSettingsFieldIdx = -1;  // -1 = first draw needed
+bool inSettingsScreen     = false;
+bool settingsDirty        = true;
+bool justEnteredSettings  = false;
+int  prevSettingsFieldIdx = -1;   // -1 = first draw needed
 
 
 // =============================================================================
 // Unit conversion
 // =============================================================================
+void updateMicronsPerStep() {
+  microns_per_step = 1500.0f / (float)steps_per_rev;
+}
+
+int calSpeedHz() {
+  // Targets ≈1 mm/s (1000 µm/s) at the motor regardless of microstep setting.
+  int hz = (int)(1000.0f / microns_per_step);
+  return hz < 1 ? 1 : hz;
+}
+
 float stepToUmFactor() {
   return 1.0f / (2.0f * cosf((float)angle_deg * (float)M_PI / 360.0f));
 }
 
 float stepsToUm(int32_t steps) {
-  return (float)steps * MICRONS_PER_STEP * stepToUmFactor();
+  return (float)steps * microns_per_step * stepToUmFactor();
 }
 
 int32_t umToSteps(float um) {
-  float d = MICRONS_PER_STEP * stepToUmFactor();
+  float d = microns_per_step * stepToUmFactor();
   if (d < 1e-4f) d = 1e-4f;
   return (int32_t)(um / d);
 }
 
 uint32_t speedUmToMilliHz(float um_s) {
-  float d = MICRONS_PER_STEP * stepToUmFactor();
+  float d = microns_per_step * stepToUmFactor();
   if (d < 1e-4f) d = 1e-4f;
   uint32_t mhz = (uint32_t)(um_s / d * 1000.0f);
   return mhz < 1 ? 1 : mhz;
@@ -233,17 +251,19 @@ void loadPrefs() {
   SavedSettings s;
   EEPROM.get(EEPROM_ADDR, s);
   if (s.magic == EEPROM_MAGIC) {
+    steps_per_rev = s.steps_per_rev;
     angle_deg     = s.angle_deg;
     speed_um_s    = s.speed_um_s;
     start_pos_um  = s.start_pos_um;
     dist_xa_steps = s.dist_xa_steps;
   }
-  // else keep firmware defaults
+  updateMicronsPerStep();  // always recompute from loaded (or default) steps_per_rev
 }
 
 void saveAll() {
   SavedSettings s;
   s.magic         = EEPROM_MAGIC;
+  s.steps_per_rev = steps_per_rev;
   s.angle_deg     = angle_deg;
   s.speed_um_s    = speed_um_s;
   s.start_pos_um  = start_pos_um;
@@ -262,6 +282,21 @@ void saveCalibration() { saveAll(); }
 void doIncrement(int dir, bool fast) {
   float dist_xa_um = stepsToUm(dist_xa_steps);
   switch (settingsField) {
+    case FIELD_STEPS: {
+      int idx = 3;  // default index for 1600
+      for (int i = 0; i < STEPS_OPTIONS_N; i++) {
+        if (STEPS_OPTIONS[i] == steps_per_rev) { idx = i; break; }
+      }
+      idx = constrain(idx + dir, 0, STEPS_OPTIONS_N - 1);
+      int newVal = STEPS_OPTIONS[idx];
+      if (newVal != steps_per_rev) {
+        steps_per_rev = newVal;
+        updateMicronsPerStep();
+        dist_xa_steps        = 0;   // calibration invalid — step units changed
+        prevSettingsFieldIdx = -1;  // force full redraw to update cal status line
+      }
+      break;
+    }
     case FIELD_ANGLE:
       angle_deg = constrain(angle_deg + dir, 0, 89);
       break;
@@ -308,7 +343,7 @@ void abortAndIdle() {
 void startMoveToStart() {
   appState = MOVING_TO_START;
   enableMotor();
-  stepper->setSpeedInHz(CAL_SPEED_HZ);
+  stepper->setSpeedInHz(calSpeedHz());
   stepper->moveTo(umToSteps(start_pos_um));
   startPeelAt = 0;
 }
@@ -324,22 +359,23 @@ void startPeeling() {
 void startHoming() {
   appState = HOMING;
   enableMotor();
-  stepper->setSpeedInHz(CAL_SPEED_HZ);
+  stepper->setSpeedInHz(calSpeedHz());
   stepper->runBackward();
 }
 
 void startCal() {
   appState = CAL_HOMING;
   enableMotor();
-  stepper->setSpeedInHz(CAL_SPEED_HZ);
+  stepper->setSpeedInHz(calSpeedHz());
   stepper->runBackward();
 }
 
 void cycleSettingsField() {
   switch (settingsField) {
-    case FIELD_ANGLE: settingsField = FIELD_SPEED; break;
-    case FIELD_SPEED: settingsField = FIELD_START; break;
-    case FIELD_START: settingsField = FIELD_CAL;   break;
+    case FIELD_SPEED: settingsField = FIELD_ANGLE; break;
+    case FIELD_ANGLE: settingsField = FIELD_START; break;
+    case FIELD_START: settingsField = FIELD_STEPS; break;
+    case FIELD_STEPS: settingsField = FIELD_CAL;   break;
     case FIELD_CAL:
       saveSettings();
       appState = IDLE;
@@ -363,10 +399,10 @@ void onButtonPress(int idx) {
         }
       } else if (idx == IDX_B) {
         if (stepper->getCurrentPosition() == 0) {
-          appState             = SETTINGS;
-          settingsField        = FIELD_ANGLE;
-          settingsDirty        = true;
-          justEnteredSettings  = true;
+          appState            = SETTINGS;
+          settingsField       = FIELD_SPEED;
+          settingsDirty       = true;
+          justEnteredSettings = true;
         } else {
           startHoming();
         }
@@ -461,10 +497,10 @@ void updateButtons() {
   }
 
   // Physical layout (setRotation 2): A=top-left, X=top-right, B=bottom-left, Y=bottom-right
-  drawButtonBox(BTN_LEFT_X,  BTN_TOP_Y, aLbl,  btnDown[IDX_A]);       // top-left  = A (UI)
-  drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, "X",   btnDown[IDX_X]);       // top-right = X (limit)
-  drawButtonBox(BTN_LEFT_X,  BTN_BOT_Y, bLbl,  btnDown[IDX_B], bSz); // bot-left  = B (UI)
-  drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, "Y",   btnDown[IDX_Y]);       // bot-right = Y (limit)
+  drawButtonBox(BTN_LEFT_X,  BTN_TOP_Y, aLbl,  btnDown[IDX_A]);        // top-left  = A (UI)
+  drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, "X",   btnDown[IDX_X]);        // top-right = X (limit)
+  drawButtonBox(BTN_LEFT_X,  BTN_BOT_Y, bLbl,  btnDown[IDX_B], bSz);  // bot-left  = B (UI)
+  drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, "Y",   btnDown[IDX_Y]);        // bot-right = Y (limit)
 }
 
 void clearContent() {
@@ -481,7 +517,7 @@ void updateRunContent() {
   int32_t pos_steps   = stepper->getCurrentPosition();
   float   pos_um      = stepsToUm(pos_steps);
   float   actual_hz   = fabsf(stepper->getCurrentSpeedInMilliHz() / 1000.0f);
-  float   actual_um_s = actual_hz * MICRONS_PER_STEP * stepToUmFactor();
+  float   actual_um_s = actual_hz * microns_per_step * stepToUmFactor();
   float   dist_xa_um  = stepsToUm(dist_xa_steps);
 
   // ---- State label (centered by exact char count) ----
@@ -496,8 +532,7 @@ void updateRunContent() {
     case CAL_RUNNING:     stateStr = "CAL RUN";   stateCol = ST77XX_CYAN;   break;
     default: break;
   }
-  // Pad to 20 chars (full screen width at textSize 2) so background overwrites old text
-  // without a separate fillRect erase step — prevents flicker.
+  // Pad to 20 chars so background overwrites old text without a separate erase.
   {
     char sb[22];
     int  len = strlen(stateStr);
@@ -516,7 +551,6 @@ void updateRunContent() {
   tft.setTextSize(2);
 
   // ---- Position (or warning) ----
-  // 19 chars from x=6 → covers x=6..234, clearing any stale content to the right
   tft.setCursor(6, POS_Y);
   if (millis() < warningUntil) {
     tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
@@ -549,7 +583,7 @@ void updateRunContent() {
   snprintf(buf, sizeof(buf), "ANG:%7d deg", angle_deg);
   tft.print(buf);
 
-  // ---- Time to end — "END:%7.1f s  " or "END:     -- s  " = 15 chars ----
+  // ---- Time to end ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
   tft.setCursor(6, PEELT_Y);
   if (appState == PEELING && speed_um_s > 0.0f && pos_um < dist_xa_um) {
@@ -560,8 +594,7 @@ void updateRunContent() {
   }
   tft.print(buf);
 
-  // ---- Peel elapsed time — value centered in 11-char field after "PLT:" ----
-  // Formats: MM:SS | HH:MM:SS | Xd HH:MM:SS (≤9d) | XXd HH:MM (≥10d)
+  // ---- Peel elapsed time ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
   tft.setCursor(6, TOEND_Y);
   {
@@ -615,7 +648,8 @@ void updateRunContent() {
 // Settings screen
 // =============================================================================
 void drawSettingsField(int idx, bool active) {
-  const int fieldY[4] = { 72, 104, 128, 152 };
+  // 5 fields spaced 22 px apart; fieldY[4]+20=176 leaves room for cal status at y=178.
+  const int fieldY[5] = { 68, 90, 112, 134, 156 };
   tft.fillRect(0, fieldY[idx], SCREEN_W, 20, ST77XX_BLACK);
   char vbuf[24];
   if (active) {
@@ -625,10 +659,11 @@ void drawSettingsField(int idx, bool active) {
     tft.print(">");
     tft.setCursor(22, fieldY[idx]);
     switch (idx) {
-      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg   ", angle_deg);   break;
-      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s  ", speed_um_s);  break;
-      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "ST: %.0fum    ", start_pos_um); break;
-      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL: press CAL");               break;
+      case FIELD_STEPS: snprintf(vbuf, sizeof(vbuf), "STP:%5d/r   ", steps_per_rev);  break;
+      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg   ", angle_deg);    break;
+      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s  ", speed_um_s);   break;
+      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "ST: %.0fum    ", start_pos_um);  break;
+      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL: press CAL");                break;
     }
     tft.print(vbuf);
   } else {
@@ -636,10 +671,11 @@ void drawSettingsField(int idx, bool active) {
     tft.setTextColor(0x8410 /* mid-gray */, ST77XX_BLACK);
     tft.setCursor(16, fieldY[idx]);
     switch (idx) {
-      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);       break;
-      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);   break;
-      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um); break;
-      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");              break;
+      case FIELD_STEPS: snprintf(vbuf, sizeof(vbuf), "STP: %d /rev", steps_per_rev);   break;
+      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);        break;
+      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);    break;
+      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um);  break;
+      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");               break;
     }
     tft.print(vbuf);
   }
@@ -670,7 +706,7 @@ void updateSettingsContent() {
     tft.setCursor((SCREEN_W - 8 * 12) / 2, STATE_Y);
     tft.print("SETTINGS");
     drawSettingsHint(curIdx);
-    for (int i = 0; i < 4; i++) drawSettingsField(i, i == curIdx);
+    for (int i = 0; i < 5; i++) drawSettingsField(i, i == curIdx);
     char  vbuf[24];
     float dist_xa_um = stepsToUm(dist_xa_steps);
     tft.setTextSize(1);
@@ -731,7 +767,7 @@ void setup() {
   pinMode(BTN_X, INPUT_PULLUP);
   pinMode(BTN_Y, INPUT_PULLUP);
 
-  // Load saved settings
+  // Load saved settings (also calls updateMicronsPerStep internally)
   loadPrefs();
 
   // Stepper (must be before initUI so getCurrentPosition() reads 0, not garbage)
@@ -825,7 +861,7 @@ void loop() {
       while (stepper->isRunning()) {}           // wait for PIO to flush buffered steps
       stepper->setCurrentPosition(0);
       if (appState == CAL_HOMING) {
-        stepper->setSpeedInHz(CAL_SPEED_HZ);
+        stepper->setSpeedInHz(calSpeedHz());
         stepper->runForward();
         appState = CAL_RUNNING;
       } else {
@@ -939,15 +975,16 @@ void loop() {
     // Serial JSON heartbeat
     float pos_um      = stepsToUm(stepper->getCurrentPosition());
     float actual_hz   = stepper->getCurrentSpeedInMilliHz() / 1000.0f;
-    float actual_um_s = actual_hz * MICRONS_PER_STEP * stepToUmFactor();
+    float actual_um_s = actual_hz * microns_per_step * stepToUmFactor();
     int   stateCode   = (appState == IDLE || appState == SETTINGS) ? 3 : 2;
 
-    Serial.print("{\"state\":");   Serial.print(stateCode);
+    Serial.print("{\"state\":");    Serial.print(stateCode);
     Serial.print(",\"position\":"); Serial.print(stepper->getCurrentPosition());
-    Serial.print(",\"speed\":");   Serial.print((int32_t)actual_hz);
-    Serial.print(",\"pos_um\":");  Serial.print(pos_um, 2);
+    Serial.print(",\"speed\":");    Serial.print((int32_t)actual_hz);
+    Serial.print(",\"pos_um\":");   Serial.print(pos_um, 2);
     Serial.print(",\"speed_um\":"); Serial.print(actual_um_s, 2);
-    Serial.print(",\"angle\":");   Serial.print(angle_deg);
+    Serial.print(",\"angle\":");    Serial.print(angle_deg);
+    Serial.print(",\"spr\":");      Serial.print(steps_per_rev);
     Serial.println("}");
   }
 }
