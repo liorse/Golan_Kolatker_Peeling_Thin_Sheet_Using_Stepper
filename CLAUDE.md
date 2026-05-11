@@ -32,7 +32,8 @@ arduino-cli core install esp32:esp32
 arduino-cli compile --fqbn esp32:esp32:d1_mini32 Peeling_Automation_Stepper_esp32/
 
 # Upload (replace /dev/ttyUSB0 with the actual port)
-arduino-cli upload --fqbn esp32:esp32:d1_mini32 --port /dev/ttyUSB0 Peeling_Automation_Stepper_esp32/
+# UploadSpeed=460800 is required — the CH340 on the D1 R32 drops at the default 921600
+arduino-cli upload --fqbn esp32:esp32:d1_mini32:UploadSpeed=460800 --port /dev/ttyUSB0 Peeling_Automation_Stepper_esp32/
 
 # Monitor serial output (115200 baud)
 arduino-cli monitor --port /dev/ttyUSB0 --config baudrate=115200
