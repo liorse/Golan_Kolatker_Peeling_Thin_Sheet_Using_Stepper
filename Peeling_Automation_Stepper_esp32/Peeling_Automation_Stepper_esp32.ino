@@ -23,11 +23,11 @@
 //
 // PIN ASSIGNMENT
 // ---------------
-//   GPIO 26  — ENA- (active-low)
-//   GPIO 25  — DIR-
-//   GPIO 27  — PUL-
-//   GPIO 32  — BTN_A  (UI: start / stop / increment)
-//   GPIO 33  — BTN_B  (UI: settings / home / cycle / decrement)
+//   GPIO 26  — ENA+ (active-high; ENA- tied to GND)
+//   GPIO 25  — DIR+ (DIR- tied to GND)
+//   GPIO 27  — PUL+ (PUL- tied to GND)
+//   GPIO  4  — BTN_A  (UI: start / stop / increment)
+//   GPIO 19  — BTN_B  (UI: settings / home / cycle / decrement)
 //   GPIO 21  — BTN_X  (microswitch home end)
 //   GPIO 22  — BTN_Y  (microswitch far end)
 //   GPIO 17  — TFT_DC
@@ -80,8 +80,8 @@
 #define TFT_BL   16
 
 // ---- Button pins (active-low, INPUT_PULLUP) ---------------------------------
-#define BTN_A  32   // UI: start / stop / increment
-#define BTN_B  33   // UI: settings / home / cycle / decrement
+#define BTN_A   4   // UI: start / stop / increment
+#define BTN_B  19   // UI: settings / home / cycle / decrement
 #define BTN_X  21   // microswitch: home end  (limit switch)
 #define BTN_Y  22   // microswitch: far end   (limit switch)
 
@@ -772,7 +772,7 @@ void setup() {
   stepper = engine.stepperConnectToPin(stepPinStepper);
   if (stepper) {
     stepper->setDirectionPin(dirPinStepper, true, 40);
-    stepper->setEnablePin(enablePinStepper);
+    stepper->setEnablePin(enablePinStepper, true);  // active HIGH: ENA- tied to GND, MCU drives ENA+
     stepper->setAutoEnable(false);
     stepper->disableOutputs();
     stepper->setCurrentPosition(0);
