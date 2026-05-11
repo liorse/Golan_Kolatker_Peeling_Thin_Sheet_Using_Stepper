@@ -39,7 +39,9 @@ arduino-cli upload --fqbn esp32:esp32:d1_mini32:UploadSpeed=460800 --port /dev/t
 arduino-cli monitor --port /dev/ttyUSB0 --config baudrate=115200
 ```
 
-Required libraries: **FastAccelStepper**, **Adafruit ST7789**, **Adafruit GFX** — install via Arduino Library Manager.
+Required libraries: **FastAccelStepper**, **Adafruit ST7789**, **Adafruit GFX**, **ESP Async WebServer** (v3.3.x by mathieucarbou), **AsyncTCP** — install via Arduino Library Manager. (`ESPmDNS` is bundled with the ESP32 core — no separate install needed.)
+
+> Note: use `ESP Async WebServer` ≥ 3.3.x (mathieucarbou fork). The older `ESPAsyncWebServer` by me-no-dev has mbedtls API breakage with ESP32 core ≥ 3.x and will not compile.
 
 ## Architecture
 

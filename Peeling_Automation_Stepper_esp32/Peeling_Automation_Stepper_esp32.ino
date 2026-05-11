@@ -67,6 +67,11 @@
 #include <SPI.h>
 #include <EEPROM.h>
 #include <math.h>
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <ESPmDNS.h>
+#include "wifi_credentials.h"
 
 // ---- Stepper driver pins ----------------------------------------------------
 #define enablePinStepper  26
@@ -201,6 +206,20 @@ unsigned long warningUntil = 0;
 unsigned long previousMillis = 0;
 const unsigned long HEARTBEAT_MS = 100;
 
+// ---- WiFi / WebSocket -------------------------------------------------------
+AsyncWebServer  webServer(80);
+AsyncWebSocket  ws("/ws");
+static portMUX_TYPE wsMux        = portMUX_INITIALIZER_UNLOCKED;
+volatile bool   virtualBtn[4]    = {};   // written by WS callback (core 0), read by loop() (core 1)
+char            wifiIpStr[40]    = "WiFi: connecting";
+static bool     serverStarted    = false;
+static unsigned long wifiStartMs = 0;
+
+// ESPAsyncWebServer (mathieucarbou ≥ 3.3.x) is thread-safe: ws.textAll() and
+// webServer.begin() may be called directly from loop() on core 1.
+void onWsEvent(AsyncWebSocket *, AsyncWebSocketClient *, AwsEventType, void *, uint8_t *, size_t);  // forward decl
+
+
 // ---- Screen mode tracking (for clean transitions) ---------------------------
 bool inSettingsScreen     = false;
 bool settingsDirty        = true;
@@ -274,6 +293,262 @@ void saveAll() {
 
 void saveSettings()    { saveAll(); }
 void saveCalibration() { saveAll(); }
+
+
+// =============================================================================
+// HTML page (inline PROGMEM)
+// =============================================================================
+static const char HTML_PAGE[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Peeling Controller</title>
+<style>
+body{margin:0;background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;}
+canvas{image-rendering:pixelated;max-width:min(100vw,100vh);max-height:min(100vw,100vh);width:480px;height:480px;}
+#ws-status{color:#888;font-size:12px;margin-top:6px;font-family:sans-serif;}
+</style>
+</head>
+<body>
+<canvas id="c" width="240" height="240"></canvas>
+<div id="ws-status">connecting...</div>
+<script>
+const SW=240,SH=240;
+const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=SW-BTN_W-3,BTN_TOP_Y=3,BTN_BOT_Y=SH-BTN_H-3;
+const DIV_TOP_Y=33,DIV_BOT_Y=207;
+const STATE_Y=36,POS_Y=56,SETSPD_Y=76,RUNSPD_Y=96,ANGLE_Y=116,TOEND_Y=136,PEELT_Y=156;
+const BAR_X=20,BAR_Y=178,BAR_W=200,BAR_H=12;
+const fieldY=[68,90,112,134,156];
+const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484'};
+const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
+
+const cv=document.getElementById('c');
+const ctx=cv.getContext('2d');
+
+function setFont(sz){ctx.font='bold '+(8*sz)+'px monospace';ctx.textBaseline='top';}
+function cw(sz){return 6*sz;}
+function ch(sz){return 8*sz;}
+
+function drawText(text,x,y,sz,col,bg){
+  setFont(sz);
+  if(bg){ctx.fillStyle=bg;ctx.fillRect(x,y,text.length*cw(sz),ch(sz));}
+  ctx.fillStyle=col;
+  for(let i=0;i<text.length;i++) ctx.fillText(text[i],x+i*cw(sz),y);
+}
+
+function roundRect(x,y,w,h,r,fill,stroke){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();}
+}
+
+function drawButtonBox(x,y,label,pressed,sz){
+  sz=sz||2;
+  const bg=pressed?C.WH:C.BK, fg=pressed?C.BK:C.CY;
+  roundRect(x,y,BTN_W,BTN_H,4,bg,C.CY);
+  const tx=x+Math.floor((BTN_W-label.length*cw(sz))/2);
+  const ty=y+Math.floor((BTN_H-ch(sz))/2);
+  drawText(label,tx,ty,sz,fg,bg);
+}
+
+function drawDividers(){
+  ctx.strokeStyle=C.CY;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,DIV_TOP_Y);ctx.lineTo(SW,DIV_TOP_Y);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,DIV_BOT_Y);ctx.lineTo(SW,DIV_BOT_Y);ctx.stroke();
+}
+
+function drawButtons(d){
+  const btn=d.btn||[false,false,false,false];
+  let aLbl,bLbl,bSz=2;
+  if(d.state==='SETTINGS'){aLbl=d.settings_field===4?'CAL':'+';bLbl='NEXT/-';bSz=1;}
+  else if(d.state==='IDLE'){aLbl=d.dist_xa_steps>0?'GO':'!CAL';bLbl=d.position===0?'SET':'HOME';}
+  else{aLbl='STOP';bLbl='----';}
+  drawButtonBox(BTN_LEFT_X, BTN_TOP_Y,aLbl,btn[0],2);
+  drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,'X', btn[2],2);
+  drawButtonBox(BTN_LEFT_X, BTN_BOT_Y,bLbl,btn[1],bSz);
+  drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,'Y', btn[3],2);
+}
+
+function pad(v,n){return String(v).padStart(n);}
+function padEnd(v,n){return String(v).padEnd(n);}
+
+function drawRunScreen(d){
+  const st=d.state||'IDLE';
+  const col=STATE_COL[st]||C.GR;
+  const padded=st.padStart(Math.floor((20+st.length)/2)).padEnd(20);
+  drawText(padded,0,STATE_Y,2,col,C.BK);
+
+  if(d.warning_active){
+    drawText('!CAL FIRST!        ',6,POS_Y,2,C.RE,C.BK);
+  } else {
+    drawText('POS:',6,POS_Y,2,C.CY,C.BK);
+    drawText(pad(d.pos_um.toFixed(1),7),6+4*12,POS_Y,2,C.WH,C.BK);
+    drawText('um      ',6+11*12,POS_Y,2,C.CY,C.BK);
+  }
+  drawText('SET:'+pad(d.speed_set.toFixed(1),7)+'um/s',6,SETSPD_Y,2,C.CY,C.BK);
+  drawText('RUN:'+pad(d.speed_um.toFixed(1),7)+'um/s',6,RUNSPD_Y,2,C.WH,C.BK);
+  drawText('ANG:'+pad(d.angle,7)+' deg',6,ANGLE_Y,2,C.CY,C.BK);
+
+  let endStr;
+  if(d.state==='PEELING'&&d.speed_set>0&&d.pos_um<d.dist_xa_um){
+    endStr='END:'+pad(((d.dist_xa_um-d.pos_um)/d.speed_set).toFixed(1),7)+' s  ';
+  } else {
+    endStr='END:     -- s  ';
+  }
+  drawText(endStr,6,PEELT_Y,2,C.CY,C.BK);
+
+  let ts='--';
+  if(d.state==='PEELING'){
+    const ts_=Math.floor(d.peel_elapsed_ms/1000);
+    const sec=ts_%60,tot_m=Math.floor(ts_/60),mn=tot_m%60,hr=Math.floor(tot_m/60)%24,days=Math.floor(tot_m/1440);
+    if(days>=10) ts=days+'d '+pad(hr,2)+':'+pad(mn,2);
+    else if(days>=1) ts=days+'d '+pad(hr,2)+':'+pad(mn,2)+':'+pad(sec,2);
+    else if(hr>=1) ts=pad(hr,2)+':'+pad(mn,2)+':'+pad(sec,2);
+    else ts=pad(mn,2)+':'+pad(sec,2);
+  }
+  const lp=Math.floor((11-ts.length)/2);
+  const cb=ts.padStart(lp+ts.length).padEnd(11);
+  drawText('PLT:'+cb,6,TOEND_Y,2,C.CY,C.BK);
+
+  ctx.strokeStyle=C.CY;ctx.lineWidth=1;ctx.strokeRect(BAR_X,BAR_Y,BAR_W,BAR_H);
+  let filled=0;
+  if(d.dist_xa_steps>0&&d.position>0){
+    filled=Math.max(0,Math.min(BAR_W-2,Math.floor((BAR_W-2)*d.position/d.dist_xa_steps)));
+  }
+  ctx.fillStyle=C.CY;ctx.fillRect(BAR_X+1,BAR_Y+1,filled,BAR_H-2);
+  ctx.fillStyle=C.BK;ctx.fillRect(BAR_X+1+filled,BAR_Y+1,BAR_W-2-filled,BAR_H-2);
+}
+
+function drawSettingsField(d,idx,active){
+  ctx.fillStyle=C.BK;ctx.fillRect(0,fieldY[idx],SW,20);
+  let vbuf;
+  if(active){
+    drawText('>',6,fieldY[idx],2,C.YE,C.BK);
+    switch(idx){
+      case 3:vbuf='STP:'+pad(d.spr,5)+'/r   ';break;
+      case 1:vbuf='ANG: '+pad(d.angle,2)+' deg   ';break;
+      case 0:vbuf='SPD:'+d.speed_set.toFixed(1)+'um/s  ';break;
+      case 2:vbuf='ST: '+d.start_pos_um.toFixed(0)+'um    ';break;
+      case 4:vbuf='CAL: press CAL';break;
+    }
+    drawText(vbuf,22,fieldY[idx],2,C.YE,C.BK);
+  } else {
+    switch(idx){
+      case 3:vbuf='STP: '+d.spr+' /rev';break;
+      case 1:vbuf='ANG: '+d.angle+' deg';break;
+      case 0:vbuf='SPD: '+d.speed_set.toFixed(1)+' um/s';break;
+      case 2:vbuf='START: '+d.start_pos_um.toFixed(0)+' um';break;
+      case 4:vbuf='CAL (press CAL)';break;
+    }
+    drawText(vbuf,16,fieldY[idx],1,C.GY,C.BK);
+  }
+}
+
+function drawSettingsScreen(d){
+  drawText('SETTINGS',Math.floor((SW-8*12)/2),STATE_Y,2,C.WH,C.BK);
+  ctx.fillStyle=C.BK;ctx.fillRect(0,54,SW,12);
+  if(d.settings_field!==4){
+    const hint='tap=NEXT  hold=-';
+    drawText(hint,Math.floor((SW-hint.length*6)/2),56,1,C.CY,C.BK);
+  }
+  for(let i=0;i<5;i++) drawSettingsField(d,i,i===d.settings_field);
+  ctx.fillStyle=C.BK;ctx.fillRect(0,178,SW,12);
+  if(d.dist_xa_steps>0){
+    drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,178,1,C.GR,C.BK);
+  } else {
+    drawText('NOT CALIBRATED      ',6,178,1,C.RE,C.BK);
+  }
+  ctx.fillStyle=C.BK;ctx.fillRect(0,190,SW,12);
+  drawText(padEnd(d.ip||'',28),6,190,1,C.CY,C.BK);
+}
+
+let lastInSettings=null;
+function render(d){
+  const inSettings=d.state==='SETTINGS';
+  if(inSettings!==lastInSettings){
+    ctx.fillStyle=C.BK;ctx.fillRect(0,DIV_TOP_Y+1,SW,DIV_BOT_Y-DIV_TOP_Y-1);
+    lastInSettings=inSettings;
+  }
+  if(inSettings) drawSettingsScreen(d); else drawRunScreen(d);
+  drawButtons(d);
+  drawDividers();
+}
+
+ctx.fillStyle=C.BK;ctx.fillRect(0,0,SW,SH);
+drawDividers();
+
+let sock;
+const statusEl=document.getElementById('ws-status');
+function connect(){
+  sock=new WebSocket('ws://'+location.host+'/ws');
+  sock.onopen=()=>{statusEl.textContent='connected';};
+  sock.onclose=()=>{statusEl.textContent='disconnected — reconnecting...';setTimeout(connect,2000);};
+  sock.onerror=()=>{sock.close();};
+  sock.onmessage=e=>{try{render(JSON.parse(e.data));}catch(_){}};
+}
+connect();
+
+function hitRegion(x,y){
+  if(x>=BTN_LEFT_X&&x<=BTN_LEFT_X+BTN_W&&y>=BTN_TOP_Y&&y<=BTN_TOP_Y+BTN_H) return 'A';
+  if(x>=BTN_RIGHT_X&&x<=BTN_RIGHT_X+BTN_W&&y>=BTN_TOP_Y&&y<=BTN_TOP_Y+BTN_H) return 'X';
+  if(x>=BTN_LEFT_X&&x<=BTN_LEFT_X+BTN_W&&y>=BTN_BOT_Y&&y<=BTN_BOT_Y+BTN_H) return 'B';
+  if(x>=BTN_RIGHT_X&&x<=BTN_RIGHT_X+BTN_W&&y>=BTN_BOT_Y&&y<=BTN_BOT_Y+BTN_H) return 'Y';
+  return null;
+}
+function cvCoords(e){
+  const r=cv.getBoundingClientRect();
+  const t=e.touches?e.touches[0]:e;
+  return{x:(t.clientX-r.left)*SW/r.width,y:(t.clientY-r.top)*SH/r.height};
+}
+function sendBtn(btn,action){if(sock&&sock.readyState===1)sock.send(JSON.stringify({btn,action}));}
+cv.addEventListener('mousedown',e=>{const{x,y}=cvCoords(e);const b=hitRegion(x,y);if(b)sendBtn(b,'press');});
+cv.addEventListener('mouseup',  e=>{const{x,y}=cvCoords(e);const b=hitRegion(x,y);if(b)sendBtn(b,'release');});
+cv.addEventListener('touchstart',e=>{e.preventDefault();const{x,y}=cvCoords(e);const b=hitRegion(x,y);if(b)sendBtn(b,'press');},{passive:false});
+cv.addEventListener('touchend',e=>{
+  e.preventDefault();
+  const r=cv.getBoundingClientRect(),t=e.changedTouches[0];
+  const x=(t.clientX-r.left)*SW/r.width,y=(t.clientY-r.top)*SH/r.height;
+  const b=hitRegion(x,y);if(b)sendBtn(b,'release');
+},{passive:false});
+</script>
+</body>
+</html>
+)rawliteral";
+
+
+// =============================================================================
+// WebSocket event handler
+// =============================================================================
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
+               AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  if (type != WS_EVT_DATA) return;
+  AwsFrameInfo *info = (AwsFrameInfo *)arg;
+  if (!info->final || info->index != 0 || info->len != len) return;
+  if (info->opcode != WS_TEXT) return;
+
+  char buf[64];
+  size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
+  memcpy(buf, data, n);
+  buf[n] = '\0';
+
+  int idx = -1;
+  if      (strstr(buf, "\"A\"")) idx = IDX_A;
+  else if (strstr(buf, "\"B\"")) idx = IDX_B;
+  else if (strstr(buf, "\"X\"")) idx = IDX_X;
+  else if (strstr(buf, "\"Y\"")) idx = IDX_Y;
+  if (idx < 0) return;
+
+  bool pressed = strstr(buf, "\"press\"") != NULL;
+  portENTER_CRITICAL(&wsMux);
+  virtualBtn[idx] = pressed;
+  portEXIT_CRITICAL(&wsMux);
+}
 
 
 // =============================================================================
@@ -750,6 +1025,7 @@ void initUI() {
 // =============================================================================
 void setup() {
   Serial.begin(115200);
+  Serial.setTimeout(50);  // keep parseInt from blocking 1 s per 'm'/'v' command
 
   // Display — VSPI defaults: SCK=18, MISO=19, MOSI=23
   pinMode(TFT_BL, OUTPUT);
@@ -783,6 +1059,11 @@ void setup() {
   // Draw UI
   initUI();
 
+  // WiFi — non-blocking station mode; server starts once connected (see loop)
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  wifiStartMs = millis();
+
   delay(500);  // ESP32 UART is always ready; brief pause for USB-CDC enumeration
 }
 
@@ -793,12 +1074,36 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
+  // ---- Non-blocking WiFi / web server start ------------------------------------
+  if (!serverStarted) {
+    if (WiFi.status() == WL_CONNECTED) {
+      serverStarted = true;
+      String ip = WiFi.localIP().toString();
+      snprintf(wifiIpStr, sizeof(wifiIpStr), "WiFi: %s", ip.c_str());
+      MDNS.begin("peeling");
+      ws.onEvent(onWsEvent);
+      webServer.addHandler(&ws);
+      webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *req){
+        req->send_P(200, "text/html", HTML_PAGE);
+      });
+      webServer.begin();
+    } else if (millis() - wifiStartMs > 10000) {
+      serverStarted = true;  // give up — run offline
+      snprintf(wifiIpStr, sizeof(wifiIpStr), "WiFi: offline");
+    }
+  }
+
   // ---- Button processing -------------------------------------------------------
+  bool virtDown[4];
+  portENTER_CRITICAL(&wsMux);
+  for (int i = 0; i < 4; i++) virtDown[i] = virtualBtn[i];
+  portEXIT_CRITICAL(&wsMux);
+
   bool curDown[4] = {
-    !digitalRead(BTN_A),
-    !digitalRead(BTN_B),
-    !digitalRead(BTN_X),
-    !digitalRead(BTN_Y)
+    !digitalRead(BTN_A) || virtDown[IDX_A],
+    !digitalRead(BTN_B) || virtDown[IDX_B],
+    !digitalRead(BTN_X) || virtDown[IDX_X],
+    !digitalRead(BTN_Y) || virtDown[IDX_Y]
   };
 
   bool btnChanged = false;
@@ -968,19 +1273,77 @@ void loop() {
     tft.drawFastHLine(0, DIV_TOP_Y, SCREEN_W, ST77XX_CYAN);
     tft.drawFastHLine(0, DIV_BOT_Y, SCREEN_W, ST77XX_CYAN);
 
-    // Serial JSON heartbeat
+    // IP line in settings screen (redrawn every tick so it updates when WiFi connects)
+    if (inSettingsScreen) {
+      tft.setTextSize(1);
+      tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+      tft.setCursor(6, 190);
+      char ipBuf[30];
+      snprintf(ipBuf, sizeof(ipBuf), "%-28s", wifiIpStr);
+      tft.print(ipBuf);
+    }
+
+    // Expanded JSON heartbeat — Serial + WebSocket broadcast
     float pos_um      = stepsToUm(stepper->getCurrentPosition());
     float actual_hz   = stepper->getCurrentSpeedInMilliHz() / 1000.0f;
     float actual_um_s = actual_hz * microns_per_step * stepToUmFactor();
-    int   stateCode   = (appState == IDLE || appState == SETTINGS) ? 3 : 2;
+    float dist_xa_um  = stepsToUm(dist_xa_steps);
 
-    Serial.print("{\"state\":");    Serial.print(stateCode);
-    Serial.print(",\"position\":"); Serial.print(stepper->getCurrentPosition());
-    Serial.print(",\"speed\":");    Serial.print((int32_t)actual_hz);
-    Serial.print(",\"pos_um\":");   Serial.print(pos_um, 2);
-    Serial.print(",\"speed_um\":"); Serial.print(actual_um_s, 2);
-    Serial.print(",\"angle\":");    Serial.print(angle_deg);
-    Serial.print(",\"spr\":");      Serial.print(steps_per_rev);
-    Serial.println("}");
+    const char *stateStr;
+    switch (appState) {
+      case MOVING:          stateStr = "MOVING";    break;
+      case MOVING_TO_START: stateStr = "TO_START";  break;
+      case PEELING:         stateStr = "PEELING";   break;
+      case HOMING:          stateStr = "HOMING";    break;
+      case SETTINGS:        stateStr = "SETTINGS";  break;
+      case CAL_HOMING:      stateStr = "CAL_HOME";  break;
+      case CAL_RUNNING:     stateStr = "CAL_RUN";   break;
+      default:              stateStr = "IDLE";      break;
+    }
+
+    unsigned long peel_elapsed = (appState == PEELING) ? (now - peel_start_ms) : 0UL;
+
+    char json[320];
+    snprintf(json, sizeof(json),
+      "{\"state\":\"%s\","
+      "\"position\":%d,"
+      "\"speed\":%d,"
+      "\"pos_um\":%.2f,"
+      "\"speed_um\":%.2f,"
+      "\"speed_set\":%.1f,"
+      "\"angle\":%d,"
+      "\"spr\":%d,"
+      "\"dist_xa_steps\":%d,"
+      "\"dist_xa_um\":%.2f,"
+      "\"start_pos_um\":%.1f,"
+      "\"peel_elapsed_ms\":%lu,"
+      "\"warning_active\":%s,"
+      "\"settings_field\":%d,"
+      "\"btn\":[%s,%s,%s,%s],"
+      "\"ip\":\"%s\"}",
+      stateStr,
+      (int)stepper->getCurrentPosition(),
+      (int)actual_hz,
+      pos_um,
+      actual_um_s,
+      speed_um_s,
+      angle_deg,
+      steps_per_rev,
+      (int)dist_xa_steps,
+      dist_xa_um,
+      start_pos_um,
+      peel_elapsed,
+      (millis() < warningUntil) ? "true" : "false",
+      (int)settingsField,
+      btnDown[IDX_A] ? "true" : "false",
+      btnDown[IDX_B] ? "true" : "false",
+      btnDown[IDX_X] ? "true" : "false",
+      btnDown[IDX_Y] ? "true" : "false",
+      wifiIpStr
+    );
+
+    Serial.println(json);
+    ws.cleanupClients();
+    if (ws.count() > 0) ws.textAll(json);
   }
 }
