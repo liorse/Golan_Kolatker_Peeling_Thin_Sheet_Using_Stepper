@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Upload
 
-This is an Arduino/Pico firmware project. Use `arduino-cli` or the Arduino IDE.
+This is an Arduino firmware project. Use `arduino-cli` or the Arduino IDE.
+
+### Raspberry Pi Pico (branch: master)
 
 ```bash
 # Compile (arduino-pico core by Earle Philhower must be installed)
@@ -18,7 +20,25 @@ arduino-cli upload --fqbn rp2040:rp2040:rpipico:os=freertos --port /dev/ttyACM0 
 arduino-cli monitor --port /dev/ttyACM0 --config baudrate=115200
 ```
 
-Required library: **FastAccelStepper** — install via Arduino Library Manager or `arduino-cli lib install "FastAccelStepper"`.
+### Wemos D1 R32 / ESP32 (branch: esp32)
+
+Sketch: `Peeling_Automation_Stepper_esp32/Peeling_Automation_Stepper_esp32.ino`
+
+```bash
+# Install ESP32 core (once)
+arduino-cli core install esp32:esp32
+
+# Compile
+arduino-cli compile --fqbn esp32:esp32:d1_mini32 Peeling_Automation_Stepper_esp32/
+
+# Upload (replace /dev/ttyUSB0 with the actual port)
+arduino-cli upload --fqbn esp32:esp32:d1_mini32 --port /dev/ttyUSB0 Peeling_Automation_Stepper_esp32/
+
+# Monitor serial output (115200 baud)
+arduino-cli monitor --port /dev/ttyUSB0 --config baudrate=115200
+```
+
+Required libraries: **FastAccelStepper**, **Adafruit ST7789**, **Adafruit GFX** — install via Arduino Library Manager.
 
 ## Architecture
 
