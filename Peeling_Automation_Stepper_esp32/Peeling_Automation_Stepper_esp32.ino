@@ -1061,6 +1061,9 @@ void setup() {
 
   // WiFi — non-blocking station mode; server starts once connected (see loop)
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);           // disable modem sleep — prevents periodic disconnections
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);  // 8.5 dBm: stable on 3.3 V rail, plenty for lab range
+  WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   wifiStartMs = millis();
 
@@ -1075,22 +1078,34 @@ void loop() {
   unsigned long now = millis();
 
   // ---- Non-blocking WiFi / web server start ------------------------------------
-  if (!serverStarted) {
-    if (WiFi.status() == WL_CONNECTED) {
-      serverStarted = true;
+  static bool webServerRegistered = false;
+  static wl_status_t prevWifiStatus = WL_IDLE_STATUS;
+  wl_status_t wifiStatus = WiFi.status();
+
+  if (wifiStatus != prevWifiStatus) {
+    if (wifiStatus == WL_CONNECTED) {
       String ip = WiFi.localIP().toString();
       snprintf(wifiIpStr, sizeof(wifiIpStr), "WiFi: %s", ip.c_str());
       MDNS.begin("peeling");
-      ws.onEvent(onWsEvent);
-      webServer.addHandler(&ws);
-      webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *req){
-        req->send_P(200, "text/html", HTML_PAGE);
-      });
-      webServer.begin();
-    } else if (millis() - wifiStartMs > 10000) {
-      serverStarted = true;  // give up — run offline
-      snprintf(wifiIpStr, sizeof(wifiIpStr), "WiFi: offline");
+      if (!webServerRegistered) {
+        ws.onEvent(onWsEvent);
+        webServer.addHandler(&ws);
+        webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *req){
+          req->send_P(200, "text/html", HTML_PAGE);
+        });
+        webServer.begin();
+        webServerRegistered = true;
+      }
+      serverStarted = true;
+    } else if (prevWifiStatus == WL_CONNECTED) {
+      snprintf(wifiIpStr, sizeof(wifiIpStr), "WiFi: reconnecting");
     }
+    prevWifiStatus = wifiStatus;
+  }
+
+  if (!serverStarted && millis() - wifiStartMs > 10000) {
+    serverStarted = true;  // give up — run offline
+    snprintf(wifiIpStr, sizeof(wifiIpStr), "WiFi: offline");
   }
 
   // ---- Button processing -------------------------------------------------------
@@ -1302,8 +1317,9 @@ void loop() {
     }
 
     unsigned long peel_elapsed = (appState == PEELING) ? (now - peel_start_ms) : 0UL;
+    int rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
 
-    char json[320];
+    char json[340];
     snprintf(json, sizeof(json),
       "{\"state\":\"%s\","
       "\"position\":%d,"
@@ -1320,6 +1336,7 @@ void loop() {
       "\"warning_active\":%s,"
       "\"settings_field\":%d,"
       "\"btn\":[%s,%s,%s,%s],"
+      "\"rssi\":%d,"
       "\"ip\":\"%s\"}",
       stateStr,
       (int)stepper->getCurrentPosition(),
@@ -1339,6 +1356,7 @@ void loop() {
       btnDown[IDX_B] ? "true" : "false",
       btnDown[IDX_X] ? "true" : "false",
       btnDown[IDX_Y] ? "true" : "false",
+      rssi,
       wifiIpStr
     );
 
