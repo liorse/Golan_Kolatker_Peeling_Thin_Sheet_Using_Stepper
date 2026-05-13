@@ -28,8 +28,8 @@
 //   GPIO 27  — PUL+ (PUL- tied to GND)
 //   GPIO  4  — BTN_A  (UI: start / stop / increment)
 //   GPIO 19  — BTN_B  (UI: settings / home / cycle / decrement)
-//   GPIO 21  — BTN_X  (microswitch home end)
-//   GPIO 22  — BTN_Y  (microswitch far end)
+//   GPIO 14  — BTN_X  (microswitch home end)
+//   GPIO 12  — BTN_Y  (microswitch far end)
 //   GPIO 17  — TFT_DC
 //   GPIO  5  — TFT_CS
 //   GPIO 18  — SPI SCK  (VSPI default)
@@ -87,8 +87,8 @@
 // ---- Button pins (active-low, INPUT_PULLUP) ---------------------------------
 #define BTN_A   4   // UI: start / stop / increment
 #define BTN_B  19   // UI: settings / home / cycle / decrement
-#define BTN_X  21   // microswitch: home end  (limit switch)
-#define BTN_Y  22   // microswitch: far end   (limit switch)
+#define BTN_X  14   // microswitch: home end  (limit switch)
+#define BTN_Y  12   // microswitch: far end   (limit switch)  GPIO12: strapping pin — WROOM pull-down holds it LOW at boot (safe)
 
 // ---- Display geometry -------------------------------------------------------
 #define SCREEN_W   240

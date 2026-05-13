@@ -32,11 +32,17 @@ home and far-end limit switches (microswitches) during bench testing.
 |--------------------------------|-----------:|--------------------|:------------------------:|-----------|
 | BTN_A (start / stop / +)       | 4          | A1                 | Pin 16                   | GP12      |
 | BTN_B (settings / home / −)    | 19         | D12                | Pin 17                   | GP13      |
-| BTN_X (home limit / simulate)  | 21         | SDA                | Pin 19                   | GP14      |
-| BTN_Y (far limit / simulate)   | 22         | SCL                | Pin 20                   | GP15      |
+| BTN_X (home limit / simulate)  | 14         | IO14               | Pin 19                   | GP14      |
+| BTN_Y (far limit / simulate)   | 12         | IO12               | Pin 20                   | GP15      |
 
 > All buttons are active-low. The ESP32 enables internal pull-ups so no
 > external resistor is needed.
+
+> **GPIO 21 (SDA) and GPIO 22 (SCL) are now free** for I2C peripherals.
+
+> GPIO 12 is a strapping pin but safe to use here: the WROOM module's internal
+> pull-down holds it LOW during reset (correct flash voltage), and the firmware's
+> `INPUT_PULLUP` takes over after boot.
 
 ---
 
