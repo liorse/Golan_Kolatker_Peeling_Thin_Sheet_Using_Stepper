@@ -214,6 +214,7 @@ volatile bool   virtualBtn[4]    = {};   // written by WS callback (core 0), rea
 char            wifiIpStr[40]    = "WiFi: connecting";
 static bool     serverStarted    = false;
 static unsigned long wifiStartMs = 0;
+static int      prevRssiBars     = -1;   // tracks last drawn WiFi icon level
 
 // ESPAsyncWebServer (mathieucarbou ≥ 3.3.x) is thread-safe: ws.textAll() and
 // webServer.begin() may be called directly from loop() on core 1.
@@ -363,6 +364,43 @@ function drawDividers(){
   ctx.beginPath();ctx.moveTo(0,DIV_BOT_Y);ctx.lineTo(SW,DIV_BOT_Y);ctx.stroke();
 }
 
+function rssiToBars(rssi){
+  if(!rssi||rssi===0) return 0;
+  if(rssi>-60) return 4;
+  if(rssi>-70) return 3;
+  if(rssi>-80) return 2;
+  return 1;
+}
+
+function drawWifiIcon(rssi){
+  const cx=120,cy=26,bars=rssiToBars(rssi);
+  ctx.fillStyle=C.BK;ctx.fillRect(cx-14,cy-14,28,18);
+
+  let color;
+  if(bars>=3) color=C.GR;
+  else if(bars===2) color=C.YE;
+  else if(bars===1) color=C.RE;
+  else color=C.GY;
+
+  if(bars===0){
+    ctx.strokeStyle=color;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(cx-7,cy-11);ctx.lineTo(cx+7,cy-1);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx+7,cy-11);ctx.lineTo(cx-7,cy-1);ctx.stroke();
+    return;
+  }
+  // dot
+  ctx.fillStyle=color;ctx.beginPath();ctx.arc(cx,cy,2,0,Math.PI*2);ctx.fill();
+  // arcs: upper semicircle (Math.PI to 0 = left to right over top)
+  const radii=[];
+  if(bars>=2) radii.push(5);
+  if(bars>=3) radii.push(9);
+  if(bars>=4) radii.push(13);
+  ctx.strokeStyle=color;ctx.lineWidth=1;
+  radii.forEach(r=>{
+    ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,0);ctx.stroke();
+  });
+}
+
 function drawButtons(d){
   const btn=d.btn||[false,false,false,false];
   let aLbl,bLbl,bSz=2;
@@ -477,6 +515,7 @@ function render(d){
   }
   if(inSettings) drawSettingsScreen(d); else drawRunScreen(d);
   drawButtons(d);
+  drawWifiIcon(d.rssi||0);
   drawDividers();
 }
 
@@ -1009,6 +1048,58 @@ void updateSettingsContent() {
 
 
 // =============================================================================
+// WiFi signal icon  (between A and X buttons, above top divider)
+//   cx=120, cy=26: dot at bottom, arcs open upward
+//   bars: 0=disconnected(X), 1=poor, 2=fair, 3=good, 4=excellent
+// =============================================================================
+static int rssiToBars(int rssi) {
+  if (rssi == 0)  return 0;
+  if (rssi > -60) return 4;
+  if (rssi > -70) return 3;
+  if (rssi > -80) return 2;
+  return 1;
+}
+
+static void drawTopArc(int16_t cx, int16_t cy, int16_t r, uint16_t color) {
+  // Bresenham upper-semicircle: draws pixels where pixel_y <= cy
+  int16_t x = 0, y = r, d = 3 - 2 * r;
+  while (x <= y) {
+    tft.drawPixel(cx + x, cy - y, color);
+    tft.drawPixel(cx - x, cy - y, color);
+    tft.drawPixel(cx + y, cy - x, color);
+    tft.drawPixel(cx - y, cy - x, color);
+    if (d < 0) d += 4 * x + 6;
+    else { d += 4 * (x - y) + 10; y--; }
+    x++;
+  }
+}
+
+void drawWifiIcon(int bars) {
+  const int16_t cx = 120, cy = 26;
+  tft.fillRect(cx - 14, cy - 14, 28, 18, ST77XX_BLACK);  // erase old icon
+
+  uint16_t color;
+  switch (bars) {
+    case 4: case 3: color = ST77XX_GREEN;  break;
+    case 2:         color = ST77XX_YELLOW; break;
+    case 1:         color = ST77XX_RED;    break;
+    default:        color = 0x8410;        break;  // gray = disconnected
+  }
+
+  if (bars == 0) {
+    // X mark — disconnected
+    tft.drawLine(cx - 7, cy - 11, cx + 7, cy - 1, color);
+    tft.drawLine(cx + 7, cy - 11, cx - 7, cy - 1, color);
+    return;
+  }
+  tft.fillCircle(cx, cy, 2, color);
+  if (bars >= 2) drawTopArc(cx, cy,  5, color);
+  if (bars >= 3) drawTopArc(cx, cy,  9, color);
+  if (bars >= 4) drawTopArc(cx, cy, 13, color);
+}
+
+
+// =============================================================================
 // Full UI init (called once in setup)
 // =============================================================================
 void initUI() {
@@ -1016,6 +1107,7 @@ void initUI() {
   tft.drawFastHLine(0, DIV_TOP_Y, SCREEN_W, ST77XX_CYAN);
   tft.drawFastHLine(0, DIV_BOT_Y, SCREEN_W, ST77XX_CYAN);
   updateButtons();
+  drawWifiIcon(0);
   updateRunContent();
 }
 
@@ -1318,6 +1410,11 @@ void loop() {
 
     unsigned long peel_elapsed = (appState == PEELING) ? (now - peel_start_ms) : 0UL;
     int rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
+    int currBars = rssiToBars(rssi);
+    if (currBars != prevRssiBars) {
+      drawWifiIcon(currBars);
+      prevRssiBars = currBars;
+    }
 
     char json[340];
     snprintf(json, sizeof(json),
