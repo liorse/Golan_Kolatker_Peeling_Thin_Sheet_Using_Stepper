@@ -1164,6 +1164,77 @@ void setup() {
 
 
 // =============================================================================
+// Immediate WebSocket status push (also called by the 100 ms heartbeat)
+// =============================================================================
+static void sendWsJson() {
+  if (ws.count() == 0) return;
+
+  unsigned long now   = millis();
+  float pos_um        = stepsToUm(stepper->getCurrentPosition());
+  float actual_hz     = stepper->getCurrentSpeedInMilliHz() / 1000.0f;
+  float actual_um_s   = actual_hz * microns_per_step * stepToUmFactor();
+  float dist_xa_um    = stepsToUm(dist_xa_steps);
+  unsigned long peel_elapsed = (appState == PEELING) ? (now - peel_start_ms) : 0UL;
+  int rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
+
+  const char *stateStr;
+  switch (appState) {
+    case MOVING:          stateStr = "MOVING";    break;
+    case MOVING_TO_START: stateStr = "TO_START";  break;
+    case PEELING:         stateStr = "PEELING";   break;
+    case HOMING:          stateStr = "HOMING";    break;
+    case SETTINGS:        stateStr = "SETTINGS";  break;
+    case CAL_HOMING:      stateStr = "CAL_HOME";  break;
+    case CAL_RUNNING:     stateStr = "CAL_RUN";   break;
+    default:              stateStr = "IDLE";      break;
+  }
+
+  char json[340];
+  snprintf(json, sizeof(json),
+    "{\"state\":\"%s\","
+    "\"position\":%d,"
+    "\"speed\":%d,"
+    "\"pos_um\":%.2f,"
+    "\"speed_um\":%.2f,"
+    "\"speed_set\":%.1f,"
+    "\"angle\":%d,"
+    "\"spr\":%d,"
+    "\"dist_xa_steps\":%d,"
+    "\"dist_xa_um\":%.2f,"
+    "\"start_pos_um\":%.1f,"
+    "\"peel_elapsed_ms\":%lu,"
+    "\"warning_active\":%s,"
+    "\"settings_field\":%d,"
+    "\"btn\":[%s,%s,%s,%s],"
+    "\"rssi\":%d,"
+    "\"ip\":\"%s\"}",
+    stateStr,
+    (int)stepper->getCurrentPosition(),
+    (int)actual_hz,
+    pos_um,
+    actual_um_s,
+    speed_um_s,
+    angle_deg,
+    steps_per_rev,
+    (int)dist_xa_steps,
+    dist_xa_um,
+    start_pos_um,
+    peel_elapsed,
+    (millis() < warningUntil) ? "true" : "false",
+    (int)settingsField,
+    btnDown[IDX_A] ? "true" : "false",
+    btnDown[IDX_B] ? "true" : "false",
+    btnDown[IDX_X] ? "true" : "false",
+    btnDown[IDX_Y] ? "true" : "false",
+    rssi,
+    wifiIpStr
+  );
+
+  ws.textAll(json);
+}
+
+
+// =============================================================================
 // loop
 // =============================================================================
 void loop() {
@@ -1243,7 +1314,10 @@ void loop() {
       }
     }
   }
-  if (btnChanged) updateButtons();
+  if (btnChanged) {
+    updateButtons();
+    sendWsJson();   // immediate push — don't wait for 100 ms heartbeat
+  }
 
   // ---- Limit switch polling (X = home end, Y = far end) -----------------------
   bool curLimX = !digitalRead(BTN_X);
@@ -1390,75 +1464,76 @@ void loop() {
       tft.print(ipBuf);
     }
 
-    // Expanded JSON heartbeat — Serial + WebSocket broadcast
-    float pos_um      = stepsToUm(stepper->getCurrentPosition());
-    float actual_hz   = stepper->getCurrentSpeedInMilliHz() / 1000.0f;
-    float actual_um_s = actual_hz * microns_per_step * stepToUmFactor();
-    float dist_xa_um  = stepsToUm(dist_xa_steps);
+    // Periodic JSON heartbeat — Serial + WebSocket broadcast
+    {
+      float pos_um      = stepsToUm(stepper->getCurrentPosition());
+      float actual_hz   = stepper->getCurrentSpeedInMilliHz() / 1000.0f;
+      float actual_um_s = actual_hz * microns_per_step * stepToUmFactor();
+      float dist_xa_um  = stepsToUm(dist_xa_steps);
+      unsigned long peel_elapsed = (appState == PEELING) ? (now - peel_start_ms) : 0UL;
+      int rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
+      int currBars = rssiToBars(rssi);
+      if (currBars != prevRssiBars) {
+        drawWifiIcon(currBars);
+        prevRssiBars = currBars;
+      }
 
-    const char *stateStr;
-    switch (appState) {
-      case MOVING:          stateStr = "MOVING";    break;
-      case MOVING_TO_START: stateStr = "TO_START";  break;
-      case PEELING:         stateStr = "PEELING";   break;
-      case HOMING:          stateStr = "HOMING";    break;
-      case SETTINGS:        stateStr = "SETTINGS";  break;
-      case CAL_HOMING:      stateStr = "CAL_HOME";  break;
-      case CAL_RUNNING:     stateStr = "CAL_RUN";   break;
-      default:              stateStr = "IDLE";      break;
+      const char *stateStr;
+      switch (appState) {
+        case MOVING:          stateStr = "MOVING";    break;
+        case MOVING_TO_START: stateStr = "TO_START";  break;
+        case PEELING:         stateStr = "PEELING";   break;
+        case HOMING:          stateStr = "HOMING";    break;
+        case SETTINGS:        stateStr = "SETTINGS";  break;
+        case CAL_HOMING:      stateStr = "CAL_HOME";  break;
+        case CAL_RUNNING:     stateStr = "CAL_RUN";   break;
+        default:              stateStr = "IDLE";      break;
+      }
+
+      char json[340];
+      snprintf(json, sizeof(json),
+        "{\"state\":\"%s\","
+        "\"position\":%d,"
+        "\"speed\":%d,"
+        "\"pos_um\":%.2f,"
+        "\"speed_um\":%.2f,"
+        "\"speed_set\":%.1f,"
+        "\"angle\":%d,"
+        "\"spr\":%d,"
+        "\"dist_xa_steps\":%d,"
+        "\"dist_xa_um\":%.2f,"
+        "\"start_pos_um\":%.1f,"
+        "\"peel_elapsed_ms\":%lu,"
+        "\"warning_active\":%s,"
+        "\"settings_field\":%d,"
+        "\"btn\":[%s,%s,%s,%s],"
+        "\"rssi\":%d,"
+        "\"ip\":\"%s\"}",
+        stateStr,
+        (int)stepper->getCurrentPosition(),
+        (int)actual_hz,
+        pos_um,
+        actual_um_s,
+        speed_um_s,
+        angle_deg,
+        steps_per_rev,
+        (int)dist_xa_steps,
+        dist_xa_um,
+        start_pos_um,
+        peel_elapsed,
+        (millis() < warningUntil) ? "true" : "false",
+        (int)settingsField,
+        btnDown[IDX_A] ? "true" : "false",
+        btnDown[IDX_B] ? "true" : "false",
+        btnDown[IDX_X] ? "true" : "false",
+        btnDown[IDX_Y] ? "true" : "false",
+        rssi,
+        wifiIpStr
+      );
+
+      Serial.println(json);
+      ws.cleanupClients();
+      if (ws.count() > 0) ws.textAll(json);
     }
-
-    unsigned long peel_elapsed = (appState == PEELING) ? (now - peel_start_ms) : 0UL;
-    int rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
-    int currBars = rssiToBars(rssi);
-    if (currBars != prevRssiBars) {
-      drawWifiIcon(currBars);
-      prevRssiBars = currBars;
-    }
-
-    char json[340];
-    snprintf(json, sizeof(json),
-      "{\"state\":\"%s\","
-      "\"position\":%d,"
-      "\"speed\":%d,"
-      "\"pos_um\":%.2f,"
-      "\"speed_um\":%.2f,"
-      "\"speed_set\":%.1f,"
-      "\"angle\":%d,"
-      "\"spr\":%d,"
-      "\"dist_xa_steps\":%d,"
-      "\"dist_xa_um\":%.2f,"
-      "\"start_pos_um\":%.1f,"
-      "\"peel_elapsed_ms\":%lu,"
-      "\"warning_active\":%s,"
-      "\"settings_field\":%d,"
-      "\"btn\":[%s,%s,%s,%s],"
-      "\"rssi\":%d,"
-      "\"ip\":\"%s\"}",
-      stateStr,
-      (int)stepper->getCurrentPosition(),
-      (int)actual_hz,
-      pos_um,
-      actual_um_s,
-      speed_um_s,
-      angle_deg,
-      steps_per_rev,
-      (int)dist_xa_steps,
-      dist_xa_um,
-      start_pos_um,
-      peel_elapsed,
-      (millis() < warningUntil) ? "true" : "false",
-      (int)settingsField,
-      btnDown[IDX_A] ? "true" : "false",
-      btnDown[IDX_B] ? "true" : "false",
-      btnDown[IDX_X] ? "true" : "false",
-      btnDown[IDX_Y] ? "true" : "false",
-      rssi,
-      wifiIpStr
-    );
-
-    Serial.println(json);
-    ws.cleanupClients();
-    if (ws.count() > 0) ws.textAll(json);
   }
 }
