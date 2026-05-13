@@ -215,6 +215,7 @@ char            wifiIpStr[40]    = "WiFi: connecting";
 static bool     serverStarted    = false;
 static unsigned long wifiStartMs = 0;
 static int      prevRssiBars     = -1;   // tracks last drawn WiFi icon level
+static int      prevClientCount  = -1;   // tracks last drawn WebSocket client count
 
 // ESPAsyncWebServer (mathieucarbou ≥ 3.3.x) is thread-safe: ws.textAll() and
 // webServer.begin() may be called directly from loop() on core 1.
@@ -372,9 +373,10 @@ function rssiToBars(rssi){
   return 1;
 }
 
-function drawWifiIcon(rssi){
+function drawWifiIcon(rssi,clients){
   const cx=120,cy=26,bars=rssiToBars(rssi);
   ctx.fillStyle=C.BK;ctx.fillRect(cx-14,cy-14,28,18);
+  ctx.fillStyle=C.BK;ctx.fillRect(134,18,22,10);
 
   let color;
   if(bars>=3) color=C.GR;
@@ -386,6 +388,7 @@ function drawWifiIcon(rssi){
     ctx.strokeStyle=color;ctx.lineWidth=1;
     ctx.beginPath();ctx.moveTo(cx-7,cy-11);ctx.lineTo(cx+7,cy-1);ctx.stroke();
     ctx.beginPath();ctx.moveTo(cx+7,cy-11);ctx.lineTo(cx-7,cy-1);ctx.stroke();
+    setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),136,20);
     return;
   }
   // dot
@@ -399,6 +402,7 @@ function drawWifiIcon(rssi){
   radii.forEach(r=>{
     ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,0);ctx.stroke();
   });
+  setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),136,20);
 }
 
 function drawButtons(d){
@@ -515,7 +519,7 @@ function render(d){
   }
   if(inSettings) drawSettingsScreen(d); else drawRunScreen(d);
   drawButtons(d);
-  drawWifiIcon(d.rssi||0);
+  drawWifiIcon(d.rssi||0,d.clients||0);
   drawDividers();
 }
 
@@ -1154,7 +1158,7 @@ void setup() {
   // WiFi — non-blocking station mode; server starts once connected (see loop)
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);           // disable modem sleep — prevents periodic disconnections
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);  // 8.5 dBm: stable on 3.3 V rail, plenty for lab range
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);  // 19.5 dBm: maximum TX power
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   wifiStartMs = millis();
@@ -1189,7 +1193,7 @@ static void sendWsJson() {
     default:              stateStr = "IDLE";      break;
   }
 
-  char json[340];
+  char json[360];
   snprintf(json, sizeof(json),
     "{\"state\":\"%s\","
     "\"position\":%d,"
@@ -1207,6 +1211,7 @@ static void sendWsJson() {
     "\"settings_field\":%d,"
     "\"btn\":[%s,%s,%s,%s],"
     "\"rssi\":%d,"
+    "\"clients\":%d,"
     "\"ip\":\"%s\"}",
     stateStr,
     (int)stepper->getCurrentPosition(),
@@ -1227,6 +1232,7 @@ static void sendWsJson() {
     btnDown[IDX_X] ? "true" : "false",
     btnDown[IDX_Y] ? "true" : "false",
     rssi,
+    (int)ws.count(),
     wifiIpStr
   );
 
@@ -1472,10 +1478,18 @@ void loop() {
       float dist_xa_um  = stepsToUm(dist_xa_steps);
       unsigned long peel_elapsed = (appState == PEELING) ? (now - peel_start_ms) : 0UL;
       int rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
-      int currBars = rssiToBars(rssi);
-      if (currBars != prevRssiBars) {
+      int currBars    = rssiToBars(rssi);
+      int clientCount = (int)ws.count();
+      if (currBars != prevRssiBars || clientCount != prevClientCount) {
         drawWifiIcon(currBars);
-        prevRssiBars = currBars;
+        // client count to the right of WiFi icon (icon centre cx=120, ends ~x=133)
+        tft.fillRect(134, 18, 22, 10, ST77XX_BLACK);
+        tft.setTextSize(1);
+        tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+        tft.setCursor(136, 20);
+        tft.print(clientCount);
+        prevRssiBars   = currBars;
+        prevClientCount = clientCount;
       }
 
       const char *stateStr;
@@ -1490,7 +1504,7 @@ void loop() {
         default:              stateStr = "IDLE";      break;
       }
 
-      char json[340];
+      char json[360];
       snprintf(json, sizeof(json),
         "{\"state\":\"%s\","
         "\"position\":%d,"
@@ -1508,6 +1522,7 @@ void loop() {
         "\"settings_field\":%d,"
         "\"btn\":[%s,%s,%s,%s],"
         "\"rssi\":%d,"
+        "\"clients\":%d,"
         "\"ip\":\"%s\"}",
         stateStr,
         (int)stepper->getCurrentPosition(),
@@ -1528,10 +1543,11 @@ void loop() {
         btnDown[IDX_X] ? "true" : "false",
         btnDown[IDX_Y] ? "true" : "false",
         rssi,
+        (int)ws.count(),
         wifiIpStr
       );
 
-      Serial.println(json);
+      if (Serial) Serial.println(json);
       ws.cleanupClients();
       if (ws.count() > 0) ws.textAll(json);
     }
