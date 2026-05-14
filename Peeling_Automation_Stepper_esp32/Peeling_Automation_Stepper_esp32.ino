@@ -26,10 +26,11 @@
 //   GPIO 26  — ENA+ (active-high; ENA- tied to GND)
 //   GPIO 25  — DIR+ (DIR- tied to GND)
 //   GPIO 27  — PUL+ (PUL- tied to GND)
-//   GPIO  4  — BTN_A  (UI: start / stop / increment)
-//   GPIO 19  — BTN_B  (UI: settings / home / cycle / decrement)
-//   GPIO 14  — BTN_X  (microswitch home end)
-//   GPIO 12  — BTN_Y  (microswitch far end)
+//   GPIO  4  — BTN_A  (UI: start/stop; settings: navigate up)
+//   GPIO 19  — BTN_B  (UI: settings/home; settings: navigate down / exit+save)
+//   GPIO 14  — BTN_X  (UI: settings: increment/CAL trigger; no-op outside settings)
+//   GPIO 12  — BTN_Y  (UI: settings: decrement; no-op outside settings)
+//   GPIO 13  — LIMIT_SW (both limit switches wired in parallel, active-low)
 //   GPIO 17  — TFT_DC
 //   GPIO  5  — TFT_CS
 //   GPIO 18  — SPI SCK  (VSPI default)
@@ -47,12 +48,13 @@
 // -------------
 //   IDLE → [A, dist_xa>0] → MOVING_TO_START → [arrival+100ms] → PEELING
 //   IDLE → [A, dist_xa=0] → show warning "RUN CAL FIRST"
-//   IDLE → [B, pos=0]     → SETTINGS  (cycles: speed→angle→start→steps→CAL→IDLE+save)
+//   IDLE → [B, pos=0]     → SETTINGS  (B navigates down: speed→angle→start→steps→CAL→IDLE+save)
 //   IDLE → [B, pos>0]     → HOMING
-//   PEELING → [A or X limit] → IDLE
-//   HOMING  → [X limit]      → IDLE (pos := 0)
-//   SETTINGS/CAL field → [A] → CAL_HOMING → CAL_RUNNING → IDLE (saves dist_xa)
+//   PEELING → [A or LIMIT_SW] → IDLE
+//   HOMING  → [LIMIT_SW]      → IDLE (pos := 0)
+//   SETTINGS/CAL field → [X] → CAL_HOMING → CAL_RUNNING → IDLE (saves dist_xa)
 //   Any moving state → [A]   → IDLE (abort)
+//   SETTINGS: A=up, B=down/exit+save, X=+/CAL, Y=-
 //
 // SERIAL INTERFACE  (115200 baud)
 // --------------------------------
@@ -85,10 +87,11 @@
 #define TFT_BL   16
 
 // ---- Button pins (active-low, INPUT_PULLUP) ---------------------------------
-#define BTN_A   4   // UI: start / stop / increment
-#define BTN_B  19   // UI: settings / home / cycle / decrement
-#define BTN_X  14   // microswitch: home end  (limit switch)
-#define BTN_Y  12   // microswitch: far end   (limit switch)  GPIO12: strapping pin — WROOM pull-down holds it LOW at boot (safe)
+#define BTN_A    4   // UI: start / stop; in settings: navigate up
+#define BTN_B   19   // UI: settings / home; in settings: navigate down / exit+save
+#define BTN_X   14   // UI: in settings: increment (+) or trigger CAL; no-op outside settings
+#define BTN_Y   12   // UI: in settings: decrement (−); no-op outside settings  GPIO12: strapping pin — WROOM pull-down holds it LOW at boot (safe)
+#define LIMIT_SW 13  // both limit switches wired in parallel (active-low, INPUT_PULLUP)
 
 // ---- Display geometry -------------------------------------------------------
 #define SCREEN_W   240
@@ -130,13 +133,12 @@ FastAccelStepper       *stepper = NULL;
 Adafruit_ST7789 tft = Adafruit_ST7789(&SPI, TFT_CS, TFT_DC, TFT_RST);
 
 // ---- Persistent storage -----------------------------------------------------
-#define EEPROM_MAGIC  0x50454C33u   // "PEL3" — bumped for ESP32 port
+#define EEPROM_MAGIC  0x50454C34u   // "PEL4" — microstep field removed
 #define EEPROM_ADDR   0
 #define EEPROM_SIZE   64
 
 struct SavedSettings {
   uint32_t magic;
-  int      steps_per_rev;
   int      angle_deg;
   float    speed_um_s;
   float    start_pos_um;
@@ -156,16 +158,12 @@ enum AppState {
 };
 AppState appState = IDLE;
 
-enum SettingsField { FIELD_SPEED, FIELD_ANGLE, FIELD_START, FIELD_STEPS, FIELD_CAL };
+enum SettingsField { FIELD_SPEED, FIELD_ANGLE, FIELD_START, FIELD_CAL };
 SettingsField settingsField = FIELD_SPEED;
 
-// ---- Valid microstep options (must match DM542T DIP switch settings) ---------
-const int STEPS_OPTIONS[]  = { 200, 400, 800, 1600, 3200, 6400, 12800, 25600 };
-const int STEPS_OPTIONS_N  = 8;
-
 // ---- User-configurable values -----------------------------------------------
-int     steps_per_rev  = 1600;       // must match DM542T DIP switches
-float   microns_per_step = 0.9375f;  // computed: 1500 / steps_per_rev
+const int steps_per_rev  = 25600;      // fixed — matches DM542T DIP switches; not user-adjustable
+float   microns_per_step = 1500.0f / steps_per_rev;  // 0.05859375 µm/step
 int     angle_deg      = 30;
 float   speed_um_s     = 1.0f;
 float   start_pos_um   = 0.0f;
@@ -232,10 +230,6 @@ int  prevSettingsFieldIdx = -1;   // -1 = first draw needed
 // =============================================================================
 // Unit conversion
 // =============================================================================
-void updateMicronsPerStep() {
-  microns_per_step = 1500.0f / (float)steps_per_rev;
-}
-
 int calSpeedHz() {
   // Targets ≈1 mm/s (1000 µm/s) at the motor regardless of microstep setting.
   int hz = (int)(1000.0f / microns_per_step);
@@ -272,19 +266,16 @@ void loadPrefs() {
   SavedSettings s;
   EEPROM.get(EEPROM_ADDR, s);
   if (s.magic == EEPROM_MAGIC) {
-    steps_per_rev = s.steps_per_rev;
     angle_deg     = s.angle_deg;
     speed_um_s    = s.speed_um_s;
     start_pos_um  = s.start_pos_um;
     dist_xa_steps = s.dist_xa_steps;
   }
-  updateMicronsPerStep();  // always recompute from loaded (or default) steps_per_rev
 }
 
 void saveAll() {
   SavedSettings s;
   s.magic         = EEPROM_MAGIC;
-  s.steps_per_rev = steps_per_rev;
   s.angle_deg     = angle_deg;
   s.speed_um_s    = speed_um_s;
   s.start_pos_um  = start_pos_um;
@@ -322,7 +313,7 @@ const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=SW-BTN_W-3,BTN_TOP_Y=3,BTN_BOT_
 const DIV_TOP_Y=33,DIV_BOT_Y=207;
 const STATE_Y=36,POS_Y=56,SETSPD_Y=76,RUNSPD_Y=96,ANGLE_Y=116,TOEND_Y=136,PEELT_Y=156;
 const BAR_X=20,BAR_Y=178,BAR_W=200,BAR_H=12;
-const fieldY=[68,90,112,134,156];
+const fieldY=[68,92,116,140];
 const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484'};
 const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
 
@@ -407,14 +398,20 @@ function drawWifiIcon(rssi,clients){
 
 function drawButtons(d){
   const btn=d.btn||[false,false,false,false];
-  let aLbl,bLbl,bSz=2;
-  if(d.state==='SETTINGS'){aLbl=d.settings_field===4?'CAL':'+';bLbl='NEXT/-';bSz=1;}
-  else if(d.state==='IDLE'){aLbl=d.dist_xa_steps>0?'GO':'!CAL';bLbl=d.position===0?'SET':'HOME';}
-  else{aLbl='STOP';bLbl='----';}
-  drawButtonBox(BTN_LEFT_X, BTN_TOP_Y,aLbl,btn[0],2);
-  drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,'X', btn[2],2);
-  drawButtonBox(BTN_LEFT_X, BTN_BOT_Y,bLbl,btn[1],bSz);
-  drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,'Y', btn[3],2);
+  if(d.state==='SETTINGS'){
+    drawButtonBox(BTN_LEFT_X, BTN_TOP_Y,'UP',  btn[0],2);
+    drawButtonBox(BTN_LEFT_X, BTN_BOT_Y,'DOWN',btn[1],2);
+    drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,d.settings_field===3?'CAL':'+',btn[2],2);
+    drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,'-',btn[3],2);
+  } else {
+    let aLbl,bLbl;
+    if(d.state==='IDLE'){aLbl=d.dist_xa_steps>0?'GO':'!CAL';bLbl=d.position===0?'SET':'HOME';}
+    else{aLbl='STOP';bLbl='----';}
+    drawButtonBox(BTN_LEFT_X,BTN_TOP_Y,aLbl,btn[0],2);
+    drawButtonBox(BTN_LEFT_X,BTN_BOT_Y,bLbl,btn[1],2);
+    roundRect(BTN_RIGHT_X,BTN_TOP_Y,BTN_W,BTN_H,4,C.BK,null);
+    roundRect(BTN_RIGHT_X,BTN_BOT_Y,BTN_W,BTN_H,4,C.BK,null);
+  }
 }
 
 function pad(v,n){return String(v).padStart(n);}
@@ -473,20 +470,18 @@ function drawSettingsField(d,idx,active){
   if(active){
     drawText('>',6,fieldY[idx],2,C.YE,C.BK);
     switch(idx){
-      case 3:vbuf='STP:'+pad(d.spr,5)+'/r   ';break;
       case 1:vbuf='ANG: '+pad(d.angle,2)+' deg   ';break;
       case 0:vbuf='SPD:'+d.speed_set.toFixed(1)+'um/s  ';break;
       case 2:vbuf='ST: '+d.start_pos_um.toFixed(0)+'um    ';break;
-      case 4:vbuf='CAL: press CAL';break;
+      case 3:vbuf='CAL: press CAL';break;
     }
     drawText(vbuf,22,fieldY[idx],2,C.YE,C.BK);
   } else {
     switch(idx){
-      case 3:vbuf='STP: '+d.spr+' /rev';break;
       case 1:vbuf='ANG: '+d.angle+' deg';break;
       case 0:vbuf='SPD: '+d.speed_set.toFixed(1)+' um/s';break;
       case 2:vbuf='START: '+d.start_pos_um.toFixed(0)+' um';break;
-      case 4:vbuf='CAL (press CAL)';break;
+      case 3:vbuf='CAL (press CAL)';break;
     }
     drawText(vbuf,16,fieldY[idx],1,C.GY,C.BK);
   }
@@ -495,11 +490,7 @@ function drawSettingsField(d,idx,active){
 function drawSettingsScreen(d){
   drawText('SETTINGS',Math.floor((SW-8*12)/2),STATE_Y,2,C.WH,C.BK);
   ctx.fillStyle=C.BK;ctx.fillRect(0,54,SW,12);
-  if(d.settings_field!==4){
-    const hint='tap=NEXT  hold=-';
-    drawText(hint,Math.floor((SW-hint.length*6)/2),56,1,C.CY,C.BK);
-  }
-  for(let i=0;i<5;i++) drawSettingsField(d,i,i===d.settings_field);
+  for(let i=0;i<4;i++) drawSettingsField(d,i,i===d.settings_field);
   ctx.fillStyle=C.BK;ctx.fillRect(0,178,SW,12);
   if(d.dist_xa_steps>0){
     drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,178,1,C.GR,C.BK);
@@ -600,21 +591,6 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
 void doIncrement(int dir, bool fast) {
   float dist_xa_um = stepsToUm(dist_xa_steps);
   switch (settingsField) {
-    case FIELD_STEPS: {
-      int idx = 3;  // default index for 1600
-      for (int i = 0; i < STEPS_OPTIONS_N; i++) {
-        if (STEPS_OPTIONS[i] == steps_per_rev) { idx = i; break; }
-      }
-      idx = constrain(idx + dir, 0, STEPS_OPTIONS_N - 1);
-      int newVal = STEPS_OPTIONS[idx];
-      if (newVal != steps_per_rev) {
-        steps_per_rev = newVal;
-        updateMicronsPerStep();
-        dist_xa_steps        = 0;   // calibration invalid — step units changed
-        prevSettingsFieldIdx = -1;  // force full redraw to update cal status line
-      }
-      break;
-    }
     case FIELD_ANGLE:
       angle_deg = constrain(angle_deg + dir, 0, 89);
       break;
@@ -692,8 +668,7 @@ void cycleSettingsField() {
   switch (settingsField) {
     case FIELD_SPEED: settingsField = FIELD_ANGLE; break;
     case FIELD_ANGLE: settingsField = FIELD_START; break;
-    case FIELD_START: settingsField = FIELD_STEPS; break;
-    case FIELD_STEPS: settingsField = FIELD_CAL;   break;
+    case FIELD_START: settingsField = FIELD_CAL;   break;
     case FIELD_CAL:
       saveSettings();
       appState = IDLE;
@@ -728,14 +703,26 @@ void onButtonPress(int idx) {
       break;
 
     case SETTINGS:
-      if (idx == IDX_A) {          // A = UI increment / confirm CAL
+      if (idx == IDX_A) {          // A = navigate up
+        switch (settingsField) {
+          case FIELD_ANGLE: settingsField = FIELD_SPEED; break;
+          case FIELD_START: settingsField = FIELD_ANGLE; break;
+          case FIELD_CAL:   settingsField = FIELD_START; break;
+          default: break;          // FIELD_SPEED: already at top, no-op
+        }
+        settingsDirty = true;
+      } else if (idx == IDX_X) {   // X = increment or CAL trigger
         if (settingsField == FIELD_CAL) {
           startCal();
         } else {
           doIncrement(+1, false);
         }
+      } else if (idx == IDX_Y) {   // Y = decrement (no-op on CAL field)
+        if (settingsField != FIELD_CAL) {
+          doIncrement(-1, false);
+        }
       }
-      // B: handled in onButtonRelease (short) and onButtonLong (long)
+      // B: handled in onButtonRelease (navigate down / exit+save)
       break;
 
     case MOVING:
@@ -762,16 +749,17 @@ void onButtonRelease(int idx) {
 }
 
 void onButtonLong(int idx) {
-  if (appState == SETTINGS && idx == IDX_B && settingsField != FIELD_CAL) {
-    doIncrement(-1, false);
+  if (appState == SETTINGS && settingsField != FIELD_CAL) {
+    if (idx == IDX_X) doIncrement(+1, false);
+    else if (idx == IDX_Y) doIncrement(-1, false);
   }
 }
 
 void onButtonRepeat(int idx) {
   if (appState != SETTINGS) return;
-  if (idx == IDX_A && settingsField != FIELD_CAL) {
+  if (idx == IDX_X && settingsField != FIELD_CAL) {
     doIncrement(+1, true);
-  } else if (idx == IDX_B && settingsField != FIELD_CAL) {
+  } else if (idx == IDX_Y && settingsField != FIELD_CAL) {
     doIncrement(-1, true);
   }
 }
@@ -795,30 +783,27 @@ void drawButtonBox(int16_t x, int16_t y, const char *label, bool pressed, uint8_
 }
 
 void updateButtons() {
-  char    aLbl[8], bLbl[8];
-  uint8_t bSz = 2;
+  char aLbl[8], bLbl[8];
 
-  switch (appState) {
-    case IDLE:
+  if (appState == SETTINGS) {
+    drawButtonBox(BTN_LEFT_X,  BTN_TOP_Y, "UP",   btnDown[IDX_A]);
+    drawButtonBox(BTN_LEFT_X,  BTN_BOT_Y, "DOWN", btnDown[IDX_B]);
+    drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, settingsField == FIELD_CAL ? "CAL" : "+", btnDown[IDX_X]);
+    drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, "-",    btnDown[IDX_Y]);
+  } else {
+    if (appState == IDLE) {
       strcpy(aLbl, dist_xa_steps > 0 ? "GO" : "!CAL");
       strcpy(bLbl, stepper->getCurrentPosition() == 0 ? "SET" : "HOME");
-      break;
-    case SETTINGS:
-      strcpy(aLbl, settingsField == FIELD_CAL ? "CAL" : "+");
-      strcpy(bLbl, "NEXT/-");
-      bSz = 1;
-      break;
-    default:
+    } else {
       strcpy(aLbl, "STOP");
       strcpy(bLbl, "----");
-      break;
+    }
+    // Physical layout (setRotation 2): A=top-left, B=bottom-left, X/Y right side (blank)
+    drawButtonBox(BTN_LEFT_X, BTN_TOP_Y, aLbl, btnDown[IDX_A]);
+    drawButtonBox(BTN_LEFT_X, BTN_BOT_Y, bLbl, btnDown[IDX_B]);
+    tft.fillRoundRect(BTN_RIGHT_X, BTN_TOP_Y, BTN_W, BTN_H, 4, ST77XX_BLACK);
+    tft.fillRoundRect(BTN_RIGHT_X, BTN_BOT_Y, BTN_W, BTN_H, 4, ST77XX_BLACK);
   }
-
-  // Physical layout (setRotation 2): A=top-left, X=top-right, B=bottom-left, Y=bottom-right
-  drawButtonBox(BTN_LEFT_X,  BTN_TOP_Y, aLbl,  btnDown[IDX_A]);        // top-left  = A (UI)
-  drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, "X",   btnDown[IDX_X]);        // top-right = X (limit)
-  drawButtonBox(BTN_LEFT_X,  BTN_BOT_Y, bLbl,  btnDown[IDX_B], bSz);  // bot-left  = B (UI)
-  drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, "Y",   btnDown[IDX_Y]);        // bot-right = Y (limit)
 }
 
 void clearContent() {
@@ -966,8 +951,8 @@ void updateRunContent() {
 // Settings screen
 // =============================================================================
 void drawSettingsField(int idx, bool active) {
-  // 5 fields spaced 22 px apart; fieldY[4]+20=176 leaves room for cal status at y=178.
-  const int fieldY[5] = { 68, 90, 112, 134, 156 };
+  // 4 fields spaced 24 px apart; fieldY[3]+20=158 leaves room for cal status at y=178.
+  const int fieldY[4] = { 68, 92, 116, 140 };
   tft.fillRect(0, fieldY[idx], SCREEN_W, 20, ST77XX_BLACK);
   char vbuf[24];
   if (active) {
@@ -977,7 +962,6 @@ void drawSettingsField(int idx, bool active) {
     tft.print(">");
     tft.setCursor(22, fieldY[idx]);
     switch (idx) {
-      case FIELD_STEPS: snprintf(vbuf, sizeof(vbuf), "STP:%5d/r   ", steps_per_rev);  break;
       case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg   ", angle_deg);    break;
       case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s  ", speed_um_s);   break;
       case FIELD_START: snprintf(vbuf, sizeof(vbuf), "ST: %.0fum    ", start_pos_um);  break;
@@ -989,7 +973,6 @@ void drawSettingsField(int idx, bool active) {
     tft.setTextColor(0x8410 /* mid-gray */, ST77XX_BLACK);
     tft.setCursor(16, fieldY[idx]);
     switch (idx) {
-      case FIELD_STEPS: snprintf(vbuf, sizeof(vbuf), "STP: %d /rev", steps_per_rev);   break;
       case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);        break;
       case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);    break;
       case FIELD_START: snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um);  break;
@@ -999,15 +982,8 @@ void drawSettingsField(int idx, bool active) {
   }
 }
 
-void drawSettingsHint(int fieldIdx) {
-  tft.fillRect(0, 54, SCREEN_W, 12, ST77XX_BLACK);
-  if (fieldIdx != FIELD_CAL) {
-    const char *hint = "tap=NEXT  hold=-";
-    tft.setTextSize(1);
-    tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-    tft.setCursor((SCREEN_W - (int)strlen(hint) * 6) / 2, 56);
-    tft.print(hint);
-  }
+void drawSettingsHint(int) {
+  tft.fillRect(0, 54, SCREEN_W, 12, ST77XX_BLACK);  // clear hint area
 }
 
 void updateSettingsContent() {
@@ -1024,7 +1000,7 @@ void updateSettingsContent() {
     tft.setCursor((SCREEN_W - 8 * 12) / 2, STATE_Y);
     tft.print("SETTINGS");
     drawSettingsHint(curIdx);
-    for (int i = 0; i < 5; i++) drawSettingsField(i, i == curIdx);
+    for (int i = 0; i < 4; i++) drawSettingsField(i, i == curIdx);
     char  vbuf[24];
     float dist_xa_um = stepsToUm(dist_xa_steps);
     tft.setTextSize(1);
@@ -1135,6 +1111,7 @@ void setup() {
   pinMode(BTN_B, INPUT_PULLUP);
   pinMode(BTN_X, INPUT_PULLUP);
   pinMode(BTN_Y, INPUT_PULLUP);
+  pinMode(LIMIT_SW, INPUT_PULLUP);
 
   // Load saved settings (also calls updateMicronsPerStep internally)
   loadPrefs();
@@ -1325,9 +1302,9 @@ void loop() {
     sendWsJson();   // immediate push — don't wait for 100 ms heartbeat
   }
 
-  // ---- Limit switch polling (X = home end, Y = far end) -----------------------
-  bool curLimX = !digitalRead(BTN_X);
-  bool curLimY = !digitalRead(BTN_Y);
+  // ---- Limit switch polling (both switches share LIMIT_SW / GPIO 13) ----------
+  bool curLimX = !digitalRead(LIMIT_SW);
+  bool curLimY = curLimX;
 
   // Edge + debounce for MOVING safety abort: a switch may already be pressed when
   // a new move is commanded (e.g. right after homing), so level-only detection
