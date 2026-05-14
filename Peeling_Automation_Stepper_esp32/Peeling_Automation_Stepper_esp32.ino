@@ -30,7 +30,8 @@
 //   GPIO 19  — BTN_B  (UI: settings/home; settings: navigate down / exit+save)
 //   GPIO 14  — BTN_X  (UI: settings: increment/CAL trigger; no-op outside settings)
 //   GPIO 12  — BTN_Y  (UI: settings: decrement; no-op outside settings)
-//   GPIO 13  — LIMIT_SW (both limit switches wired in parallel, active-low)
+//   GPIO 13  — LIMIT_SW_X (home/X limit switch, active-low)
+//   GPIO 36  — LIMIT_SW_Y (far/Y limit switch, active-low, external 10kΩ pull-up to 3.3V)
 //   GPIO 17  — TFT_DC
 //   GPIO  5  — TFT_CS
 //   GPIO 18  — SPI SCK  (VSPI default)
@@ -91,7 +92,8 @@
 #define BTN_B   19   // UI: settings / home; in settings: navigate down / exit+save
 #define BTN_X   14   // UI: in settings: increment (+) or trigger CAL; no-op outside settings
 #define BTN_Y   12   // UI: in settings: decrement (−); no-op outside settings  GPIO12: strapping pin — WROOM pull-down holds it LOW at boot (safe)
-#define LIMIT_SW 13  // both limit switches wired in parallel (active-low, INPUT_PULLUP)
+#define LIMIT_SW_X 13  // home/X limit switch (active-low, INPUT_PULLUP)
+#define LIMIT_SW_Y 36  // far/Y  limit switch (active-low, external 10kΩ pull-up) — input-only pin, no internal pull-up
 
 // ---- Display geometry -------------------------------------------------------
 #define SCREEN_W   240
@@ -1111,7 +1113,8 @@ void setup() {
   pinMode(BTN_B, INPUT_PULLUP);
   pinMode(BTN_X, INPUT_PULLUP);
   pinMode(BTN_Y, INPUT_PULLUP);
-  pinMode(LIMIT_SW, INPUT_PULLUP);
+  pinMode(LIMIT_SW_X, INPUT_PULLUP);
+  pinMode(LIMIT_SW_Y, INPUT);  // input-only pin — pull-up is external 10kΩ to 3.3V
 
   // Load saved settings (also calls updateMicronsPerStep internally)
   loadPrefs();
@@ -1302,9 +1305,9 @@ void loop() {
     sendWsJson();   // immediate push — don't wait for 100 ms heartbeat
   }
 
-  // ---- Limit switch polling (both switches share LIMIT_SW / GPIO 13) ----------
-  bool curLimX = !digitalRead(LIMIT_SW);
-  bool curLimY = curLimX;
+  // ---- Limit switch polling ---------------------------------------------------
+  bool curLimX = !digitalRead(LIMIT_SW_X);
+  bool curLimY = !digitalRead(LIMIT_SW_Y);
 
   // Edge + debounce for MOVING safety abort: a switch may already be pressed when
   // a new move is commanded (e.g. right after homing), so level-only detection
