@@ -2,8 +2,8 @@
 // Project   : Peeling Thin Sheet Using Stepper Motor — ESP32 Controller
 // File      : Peeling_Automation_Stepper_esp32.ino
 // Author    : Lior Segev
-// Version   : 4.1.0-esp32
-// Date      : May 11, 2026
+// Version   : 4.2.0-esp32
+// Date      : May 17, 2026
 // =============================================================================
 //
 // OVERVIEW
@@ -216,6 +216,7 @@ static bool     serverStarted    = false;
 static unsigned long wifiStartMs = 0;
 static int      prevRssiBars     = -1;   // tracks last drawn WiFi icon level
 static int      prevClientCount  = -1;   // tracks last drawn WebSocket client count
+static bool     ipStripDirty    = true;  // forces IP strip redraw after updateButtons()
 
 // ESPAsyncWebServer (mathieucarbou ≥ 3.3.x) is thread-safe: ws.textAll() and
 // webServer.begin() may be called directly from loop() on core 1.
@@ -806,6 +807,7 @@ void updateButtons() {
     tft.fillRoundRect(BTN_RIGHT_X, BTN_TOP_Y, BTN_W, BTN_H, 4, ST77XX_BLACK);
     tft.fillRoundRect(BTN_RIGHT_X, BTN_BOT_Y, BTN_W, BTN_H, 4, ST77XX_BLACK);
   }
+  ipStripDirty = true;  // button backgrounds may have overwritten IP text
 }
 
 void clearContent() {
@@ -1448,6 +1450,39 @@ void loop() {
       char ipBuf[30];
       snprintf(ipBuf, sizeof(ipBuf), "%-28s", wifiIpStr);
       tft.print(ipBuf);
+    }
+
+    // IP address centered between bottom buttons (run screen only, redraws only on change).
+    {
+      static char prevIpDrawn[32] = "\x01";  // sentinel — forces first draw
+      char ipDisp[32];
+      if (!inSettingsScreen) {
+        const char *src = (strncmp(wifiIpStr, "WiFi: ", 6) == 0)
+                          ? wifiIpStr + 6 : wifiIpStr;
+        strncpy(ipDisp, src, sizeof(ipDisp) - 1);
+        ipDisp[sizeof(ipDisp) - 1] = '\0';
+      } else {
+        ipDisp[0] = '\0';
+      }
+      if (strcmp(ipDisp, prevIpDrawn) != 0 || ipStripDirty) {
+        ipStripDirty = false;
+        // Clear only the space between the two button boxes
+        const int areaX = BTN_LEFT_X + BTN_W + 1;           // 56
+        const int areaW = BTN_RIGHT_X - areaX - 1;           // 128 px
+        const int ipY   = BTN_BOT_Y + (BTN_H - 16) / 2;     // vertically centred (215)
+        tft.fillRect(areaX, BTN_BOT_Y, areaW, BTN_H, ST77XX_BLACK);
+        if (ipDisp[0] != '\0') {
+          int textW = (int)strlen(ipDisp) * 12;               // textSize 2 → 12 px/char
+          int textX = (BTN_LEFT_X + BTN_W + BTN_RIGHT_X - textW) / 2;
+          if (textX < areaX) textX = areaX;                   // left clamp
+          tft.setTextSize(2);
+          tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+          tft.setCursor(textX, ipY);
+          tft.print(ipDisp);
+        }
+        strncpy(prevIpDrawn, ipDisp, sizeof(prevIpDrawn) - 1);
+        prevIpDrawn[sizeof(prevIpDrawn) - 1] = '\0';
+      }
     }
 
     // Periodic JSON heartbeat — Serial + WebSocket broadcast
