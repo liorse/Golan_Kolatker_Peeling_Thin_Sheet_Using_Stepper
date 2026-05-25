@@ -20,6 +20,8 @@
 //       – t1: ENA→first PUL ≥ 200 ms (firmware uses 500 ms delay)
 //       – t2: DIR stable before PUL ≥ 5 µs (setDirectionPin 40 µs)
 //   • Microswitches: X = home end, Y = far end
+//   • ST7789 240×240 TFT display (SPI/VSPI; RST not connected — power-on reset only)
+//   • 4 external push-buttons: A (start/stop), B (settings/home), X (increment/CAL), Y (decrement)
 //
 // PIN ASSIGNMENT
 // ---------------
