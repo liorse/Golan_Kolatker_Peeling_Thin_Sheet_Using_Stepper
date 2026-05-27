@@ -293,11 +293,9 @@ void saveSettings()    { saveAll(); }
 void saveCalibration() { saveAll(); }
 
 
-// =============================================================================
-// HTML page (inline PROGMEM)
-// =============================================================================
-static const char HTML_PAGE[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
+// HTML page served from PROGMEM.  The same file is also used by the Python
+// serial bridge (serial_bridge/index.html).  Keep both in sync when editing.
+static const char HTML_PAGE[] PROGMEM = R"rawhtml(<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -307,11 +305,12 @@ static const char HTML_PAGE[] PROGMEM = R"rawliteral(
 body{margin:0;background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;}
 canvas{image-rendering:pixelated;max-width:min(100vw,100vh);max-height:min(100vw,100vh);width:480px;height:480px;}
 #ws-status{color:#888;font-size:12px;margin-top:6px;font-family:sans-serif;}
+#serial-badge{display:none;color:#00fc00;font-weight:bold;margin-left:8px;font-size:13px;}
 </style>
 </head>
 <body>
 <canvas id="c" width="240" height="240"></canvas>
-<div id="ws-status">connecting...</div>
+<div id="ws-status">connecting... <span id="serial-badge">&#128268; SERIAL</span></div>
 <script>
 const SW=240,SH=240;
 const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=SW-BTN_W-3,BTN_TOP_Y=3,BTN_BOT_Y=SH-BTN_H-3;
@@ -507,7 +506,19 @@ function drawSettingsScreen(d){
 }
 
 let lastInSettings=null;
+const serialBadge=document.getElementById('serial-badge');
+
 function render(d){
+  // Reveal the SERIAL badge once we receive a transport:serial frame (stays visible)
+  if(d.transport==='serial') serialBadge.style.display='inline';
+
+  // Serial cable disconnected — show reconnecting notice without touching the canvas
+  if(d.serial_lost){
+    statusEl.firstChild.textContent='reconnecting... ';
+    return;
+  }
+
+  statusEl.firstChild.textContent='connected ';
   const inSettings=d.state==='SETTINGS';
   if(inSettings!==lastInSettings){
     ctx.fillStyle=C.BK;ctx.fillRect(0,DIV_TOP_Y+1,SW,DIV_BOT_Y-DIV_TOP_Y-1);
@@ -522,12 +533,18 @@ function render(d){
 ctx.fillStyle=C.BK;ctx.fillRect(0,0,SW,SH);
 drawDividers();
 
+// WebSocket URL: use port 8081 when served from Python bridge on localhost;
+// use the page host (port 80) when served directly from the ESP32.
+const wsUrl=(location.hostname==='localhost'||location.hostname==='127.0.0.1')
+  ? 'ws://'+location.hostname+':8082/ws'
+  : 'ws://'+location.host+'/ws';
+
 let sock;
 const statusEl=document.getElementById('ws-status');
 function connect(){
-  sock=new WebSocket('ws://'+location.host+'/ws');
-  sock.onopen=()=>{statusEl.textContent='connected';};
-  sock.onclose=()=>{statusEl.textContent='disconnected — reconnecting...';setTimeout(connect,2000);};
+  sock=new WebSocket(wsUrl);
+  sock.onopen=()=>{statusEl.firstChild.textContent='connected ';};
+  sock.onclose=()=>{statusEl.firstChild.textContent='disconnected — reconnecting... ';setTimeout(connect,2000);};
   sock.onerror=()=>{sock.close();};
   sock.onmessage=e=>{try{render(JSON.parse(e.data));}catch(_){}};
 }
@@ -557,8 +574,7 @@ cv.addEventListener('touchend',e=>{
 },{passive:false});
 </script>
 </body>
-</html>
-)rawliteral";
+</html>)rawhtml";
 
 
 // =============================================================================
@@ -1380,6 +1396,28 @@ void loop() {
         stepper->setSpeedInHz(100);
         stepper->moveTo(pos);
         updateButtons();
+        break;
+      }
+      case 'b': {
+        // Virtual button inject from serial bridge: bA1=pressA  bA0=releaseA
+        // Format: 'b' <letter A/B/X/Y> <'1'=press / '0'=release>
+        unsigned long t0 = millis();
+        while (Serial.available() < 2 && millis() - t0 < 10) { /* spin ≤10 ms */ }
+        if (Serial.available() >= 2) {
+          char letter = (char)Serial.read();
+          char state  = (char)Serial.read();
+          int  idx    = -1;
+          if      (letter == 'A') idx = IDX_A;
+          else if (letter == 'B') idx = IDX_B;
+          else if (letter == 'X') idx = IDX_X;
+          else if (letter == 'Y') idx = IDX_Y;
+          if (idx >= 0) {
+            bool pressed = (state == '1');
+            portENTER_CRITICAL(&wsMux);
+            virtualBtn[idx] = pressed;
+            portEXIT_CRITICAL(&wsMux);
+          }
+        }
         break;
       }
     }

@@ -43,14 +43,53 @@ Required libraries: **FastAccelStepper**, **Adafruit ST7789**, **Adafruit GFX**,
 
 > Note: use `ESP Async WebServer` ≥ 3.3.x (mathieucarbou fork). The older `ESPAsyncWebServer` by me-no-dev has mbedtls API breakage with ESP32 core ≥ 3.x and will not compile.
 
+The web UI (`index.html`) is stored as a PROGMEM string inside the sketch.  When editing
+the UI, update **both** the PROGMEM string in the `.ino` file and the canonical copy at
+`serial_bridge/index.html` (used by the Python bridge).
+
+### Serial bridge (Python)
+
+Run the serial bridge on your computer to control the instrument over USB without WiFi:
+
+```bash
+cd serial_bridge
+pip install -r requirements.txt
+
+# Auto-detect CH340 and start
+python serial_bridge.py
+
+# Specify port explicitly
+python serial_bridge.py /dev/ttyUSB0          # Linux / macOS
+python serial_bridge.py COM3                   # Windows
+
+# Custom HTTP port
+python serial_bridge.py --http-port 9090
+```
+
+Then open **http://localhost:8080** in any browser.  The 🔌 SERIAL badge confirms the
+serial transport.  WiFi WebSocket and physical buttons remain active simultaneously.
+
 ## Architecture
 
-The entire firmware is a single file: `Peeling_Automation_Stepper_Control_Uno/Peeling_Automation_Stepper_Control_Uno.ino`.
+The ESP32 firmware is a single file: `Peeling_Automation_Stepper_esp32/Peeling_Automation_Stepper_esp32.ino`.
 
-`loop()` has three sequential sections on every iteration:
-1. **Serial parser** — reads one character, dispatches `m` / `s` / `v` commands
-2. **State machine** — `WAITING ↔ MOVING`; transitions to WAITING when `stepper->isRunning()` goes false
-3. **100 ms JSON heartbeat** — emits `{"state":N,"position":N,"speed":N}` for host monitoring
+`loop()` has four sequential sections on every iteration:
+1. **Serial parser** — reads one character, dispatches `m` / `s` / `v` / `b` commands
+2. **Button polling** — physical + virtual (WebSocket / serial-bridge) buttons merged
+3. **State machine** — `IDLE ↔ MOVING_TO_START ↔ PEELING` etc.
+4. **100 ms JSON heartbeat** — emits full state JSON on both `Serial` and WebSocket
+
+### Serial commands
+
+| Command | Example | Effect |
+|---------|---------|--------|
+| `m<pos>` | `m50000` | Move to step position |
+| `s` | `s` | Stop / abort |
+| `v<hz>` | `v200` | Set speed in Hz |
+| `bXY` | `bA1` / `bA0` | Virtual button press / release (serial bridge) |
+
+`b` commands use the same `virtualBtn[]` mechanism as the WiFi WebSocket, so the entire
+state machine (settings, homing, calibration) is reachable over serial.
 
 ## Key Constants
 
