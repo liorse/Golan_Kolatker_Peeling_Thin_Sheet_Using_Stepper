@@ -1,0 +1,61 @@
+{
+  "name": "peeling-controller",
+  "version": "1.0.0",
+  "description": "Peeling Thin-Sheet Controller — desktop app (serial ↔ WebSocket bridge)",
+  "author": {
+    "name": "Weizmann Institute of Science",
+    "email": "lior.segev@weizmann.ac.il"
+  },
+  "homepage": "https://github.com/liorse/Golan_Kolatker_Peeling_Thin_Sheet_Using_Stepper",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "postinstall": "electron-rebuild",
+    "dist:linux": "electron-builder --linux",
+    "dist:win": "electron-builder --win",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "@serialport/parser-readline": "^12.0.0",
+    "serialport": "^12.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "il.ac.weizmann.peeling-controller",
+    "productName": "Peeling Controller",
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "files": [
+      "main.js",
+      "bridge.js",
+      "index.html",
+      "!logs/**",
+      "!dist/**",
+      "!.gitignore",
+      "!*.md"
+    ],
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb",      "arch": ["x64"] }
+      ],
+      "category": "Science",
+      "icon": null
+    },
+    "win": {
+      "target": [
+        { "target": "nsis",     "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": null
+    }
+  }
+}
