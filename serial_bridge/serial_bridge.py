@@ -9,6 +9,14 @@ Serves the web UI at http://localhost:8080 and bridges:
 The ESP32 continues to serve the same UI over WiFi independently; serial and WiFi
 can be active at the same time.
 
+Experiment logging
+  When the firmware enters the PEELING state a CSV file is automatically opened in
+  logs/ (next to this script).  Each 100 ms heartbeat is written as one row.  The
+  file is closed when the state leaves PEELING.
+
+  Filename:  peel_YYYYMMDD_HHMMSS_angNN_spdX.X.csv
+  Columns:   timestamp, time_ms, pos_um, speed_um_s, state
+
 Usage:
     python serial_bridge.py [port] [--http-port PORT]
 
@@ -25,6 +33,8 @@ Requirements:
 
 import argparse
 import asyncio
+import csv
+import datetime
 import json
 import logging
 import sys
@@ -63,6 +73,81 @@ _clients: Set           = set()   # active browser WebSocket connections
 _latest:  Optional[str] = None    # last heartbeat JSON (sent to new clients on connect)
 _ser:     Optional[serial.Serial] = None   # current open serial port (None = disconnected)
 _ser_lock = threading.Lock()      # guards _ser for cross-thread safety
+
+# ── Experiment log state ───────────────────────────────────────────────────────
+LOG_DIR = Path(__file__).parent / "logs"
+_log_file   = None          # open file object (None = not logging)
+_log_writer = None          # csv.writer for _log_file
+_log_rows   = 0             # rows written in current log
+_prev_state = ""            # last seen state string (edge detection)
+
+LOG_COLUMNS = ["timestamp", "time_ms", "pos_um", "speed_um_s", "state"]
+
+
+def _log_open(obj: dict) -> None:
+    """Open a new CSV log file for a peeling run."""
+    global _log_file, _log_writer, _log_rows
+    LOG_DIR.mkdir(exist_ok=True)
+    ts    = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    ang   = int(obj.get("angle", 0))
+    spd   = float(obj.get("speed_set", 0.0))
+    fname = LOG_DIR / f"peel_{ts}_ang{ang}_spd{spd:.1f}.csv"
+    _log_file   = open(fname, "w", newline="", encoding="utf-8")
+    _log_writer = csv.writer(_log_file)
+    _log_writer.writerow(LOG_COLUMNS)
+    _log_rows   = 0
+    print(f"📄 Logging → {fname}")
+
+
+def _log_row(obj: dict) -> None:
+    """Append one heartbeat row to the open log."""
+    global _log_rows
+    if _log_writer is None:
+        return
+    ts     = datetime.datetime.now().isoformat(timespec="milliseconds")
+    row = [
+        ts,
+        obj.get("peel_elapsed_ms", 0),
+        round(float(obj.get("pos_um",    0.0)), 2),
+        round(float(obj.get("speed_um",  0.0)), 3),
+        obj.get("state", ""),
+    ]
+    _log_writer.writerow(row)
+    _log_rows += 1
+
+
+def _log_close() -> None:
+    """Flush and close the current log file."""
+    global _log_file, _log_writer, _log_rows
+    if _log_file is None:
+        return
+    _log_file.flush()
+    _log_file.close()
+    print(f"✓ Log closed — {_log_rows} rows written")
+    _log_file   = None
+    _log_writer = None
+    _log_rows   = 0
+
+
+def _log_dispatch(obj: dict) -> None:
+    """
+    Called for every parsed JSON heartbeat.
+    Opens / appends / closes the log based on state transitions.
+    """
+    global _prev_state
+    state = obj.get("state", "")
+
+    if state == "PEELING":
+        if _log_file is None:
+            _log_open(obj)
+        _log_row(obj)
+    else:
+        if _log_file is not None:
+            # Write the final non-PEELING row so the transition is visible
+            _log_row(obj)
+            _log_close()
+
+    _prev_state = state
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -229,6 +314,9 @@ async def _serial_loop(port_arg: Optional[str], http_port: int) -> None:
                 _latest = text
                 await _broadcast(text)
 
+                # Experiment logging (state-based, no firmware change needed)
+                _log_dispatch(obj)
+
         except Exception as exc:
             print(f"\nSerial lost ({port}): {exc}")
         finally:
@@ -238,6 +326,8 @@ async def _serial_loop(port_arg: Optional[str], http_port: int) -> None:
                 s.close()
             except Exception:
                 pass
+            # Close any open experiment log so data is not lost on disconnect
+            _log_close()
             # Tell every open browser tab that serial is gone
             await _broadcast('{"serial_lost":true,"transport":"serial"}')
 
