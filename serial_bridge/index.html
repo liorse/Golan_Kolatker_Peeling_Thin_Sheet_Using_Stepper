@@ -9,11 +9,13 @@ body{margin:0;background:#111;display:flex;flex-direction:column;align-items:cen
 canvas{image-rendering:pixelated;max-width:min(100vw,100vh);max-height:min(100vw,100vh);width:480px;height:480px;}
 #ws-status{color:#888;font-size:12px;margin-top:6px;font-family:sans-serif;}
 #serial-badge{display:none;color:#00fc00;font-weight:bold;margin-left:8px;font-size:13px;}
+#log-status{font-family:monospace;font-size:11px;margin-top:4px;text-align:center;line-height:1.6;min-height:1.6em;}
 </style>
 </head>
 <body>
 <canvas id="c" width="240" height="240"></canvas>
 <div id="ws-status">connecting... <span id="serial-badge">&#128268; SERIAL</span></div>
+<div id="log-status"></div>
 <script>
 const SW=240,SH=240;
 const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=SW-BTN_W-3,BTN_TOP_Y=3,BTN_BOT_Y=SH-BTN_H-3;
@@ -210,6 +212,7 @@ function drawSettingsScreen(d){
 
 let lastInSettings=null;
 const serialBadge=document.getElementById('serial-badge');
+const logStatusEl=document.getElementById('log-status');
 
 function render(d){
   // Reveal the SERIAL badge once we receive a transport:serial frame (stays visible)
@@ -218,7 +221,17 @@ function render(d){
   // Serial cable disconnected — show reconnecting notice without touching the canvas
   if(d.serial_lost){
     statusEl.firstChild.textContent='reconnecting... ';
+    logStatusEl.innerHTML='';
     return;
+  }
+
+  // Log status indicator — only shown when Python bridge is active and logging
+  if(d.log_info&&d.log_info.active){
+    logStatusEl.innerHTML=
+      '&#x1F4DD;&nbsp;<span style="color:#f8fc00">'+d.log_info.filename+'</span><br>'
+      +'<span style="color:#888">→&nbsp;'+d.log_info.folder+'</span>';
+  } else {
+    logStatusEl.innerHTML='';
   }
 
   statusEl.firstChild.textContent='connected ';

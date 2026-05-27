@@ -14,7 +14,7 @@ Experiment logging
   logs/ (next to this script).  Each 100 ms heartbeat is written as one row.  The
   file is closed when the state leaves PEELING.
 
-  Filename:  peel_YYYYMMDD_HHMMSS_angNN_spdX.X.csv
+  Filename:  peel_YYYYMMDD_HHMMSS_angNN_spdXpX.csv  (decimal point → 'p')
   Columns:   timestamp, time_ms, pos_um, speed_um_s, state
 
 Usage:
@@ -90,8 +90,9 @@ def _log_open(obj: dict) -> None:
     LOG_DIR.mkdir(exist_ok=True)
     ts    = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     ang   = int(obj.get("angle", 0))
-    spd   = float(obj.get("speed_set", 0.0))
-    fname = LOG_DIR / f"peel_{ts}_ang{ang}_spd{spd:.1f}.csv"
+    spd     = float(obj.get("speed_set", 0.0))
+    spd_str = f"{spd:.1f}".replace('.', 'p')   # e.g. 1.5 → "1p5" (no dots in stem)
+    fname = LOG_DIR / f"peel_{ts}_ang{ang}_spd{spd_str}.csv"
     _log_file   = open(fname, "w", newline="", encoding="utf-8")
     _log_writer = csv.writer(_log_file)
     _log_writer.writerow(LOG_COLUMNS)
@@ -308,14 +309,20 @@ async def _serial_loop(port_arg: Optional[str], http_port: int) -> None:
                 except json.JSONDecodeError:
                     continue
 
-                # Inject the transport marker so the browser can show the SERIAL badge
+                # Experiment logging — dispatch first so log_info reflects
+                # the current open/close state in the same broadcast frame.
+                _log_dispatch(obj)
+
+                # Inject transport marker + live log status for the browser UI
                 obj['transport'] = 'serial'
+                obj['log_info'] = {
+                    'active':   _log_file is not None,
+                    'filename': Path(_log_file.name).name if _log_file is not None else '',
+                    'folder':   'logs',
+                }
                 text = json.dumps(obj, separators=(',', ':'))
                 _latest = text
                 await _broadcast(text)
-
-                # Experiment logging (state-based, no firmware change needed)
-                _log_dispatch(obj)
 
         except Exception as exc:
             print(f"\nSerial lost ({port}): {exc}")
