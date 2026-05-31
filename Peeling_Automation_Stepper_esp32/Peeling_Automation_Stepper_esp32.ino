@@ -100,11 +100,12 @@
 // ---- Display geometry -------------------------------------------------------
 #define SCREEN_W   240
 #define SCREEN_H   240
+#define X_OFF      ((320 - SCREEN_W) / 2)   // centers 240-px content in 320-px landscape
 
 #define BTN_W       52
 #define BTN_H       28
-#define BTN_LEFT_X   3
-#define BTN_RIGHT_X (SCREEN_W - BTN_W - 3)
+#define BTN_LEFT_X   (3 + X_OFF)
+#define BTN_RIGHT_X (SCREEN_W - BTN_W - 3 + X_OFF)
 #define BTN_TOP_Y    3
 #define BTN_BOT_Y   (SCREEN_H - BTN_H - 3)
 
@@ -119,7 +120,7 @@
 #define ANGLE_Y   116   //                    → ends 132
 #define TOEND_Y   136   //                    → ends 152
 #define PEELT_Y   156   //                    → ends 172
-#define BAR_X      20
+#define BAR_X      (20 + X_OFF)
 #define BAR_Y     178   // 12 px bar → ends 190; bottom divider at 207
 #define BAR_W     200
 #define BAR_H      12
@@ -842,7 +843,7 @@ void updateButtons() {
 }
 
 void clearContent() {
-  tft.fillRect(0, DIV_TOP_Y + 1, SCREEN_W, DIV_BOT_Y - DIV_TOP_Y - 1, ST77XX_BLACK);
+  tft.fillRect(X_OFF, DIV_TOP_Y + 1, SCREEN_W, DIV_BOT_Y - DIV_TOP_Y - 1, ST77XX_BLACK);
 }
 
 
@@ -882,14 +883,14 @@ void updateRunContent() {
     sb[i] = '\0';
     tft.setTextSize(2);
     tft.setTextColor(stateCol, ST77XX_BLACK);
-    tft.setCursor(0, STATE_Y);
+    tft.setCursor(X_OFF, STATE_Y);
     tft.print(sb);
   }
 
   tft.setTextSize(2);
 
   // ---- Position (or warning) ----
-  tft.setCursor(6, POS_Y);
+  tft.setCursor(6 + X_OFF, POS_Y);
   if (millis() < warningUntil) {
     tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
     tft.print("!CAL FIRST!        ");   // 19 chars
@@ -905,25 +906,25 @@ void updateRunContent() {
 
   // ---- Set speed — "SET:%7.1fum/s" = 4+7+4 = 15 chars ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  tft.setCursor(6, SETSPD_Y);
+  tft.setCursor(6 + X_OFF, SETSPD_Y);
   snprintf(buf, sizeof(buf), "SET:%7.1fum/s", speed_um_s);
   tft.print(buf);
 
   // ---- Run speed — "RUN:%7.1fum/s" = 4+7+4 = 15 chars ----
   tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-  tft.setCursor(6, RUNSPD_Y);
+  tft.setCursor(6 + X_OFF, RUNSPD_Y);
   snprintf(buf, sizeof(buf), "RUN:%7.1fum/s", actual_um_s);
   tft.print(buf);
 
   // ---- Angle — "ANG:%7d deg" = 4+7+4 = 15 chars ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  tft.setCursor(6, ANGLE_Y);
+  tft.setCursor(6 + X_OFF, ANGLE_Y);
   snprintf(buf, sizeof(buf), "ANG:%7d deg", angle_deg);
   tft.print(buf);
 
   // ---- Time to end ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  tft.setCursor(6, PEELT_Y);
+  tft.setCursor(6 + X_OFF, PEELT_Y);
   if (appState == PEELING && speed_um_s > 0.0f && pos_um < dist_xa_um) {
     float t = (dist_xa_um - pos_um) / speed_um_s;
     snprintf(buf, sizeof(buf), "END:%7.1f s  ", t);
@@ -934,7 +935,7 @@ void updateRunContent() {
 
   // ---- Peel elapsed time ----
   tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  tft.setCursor(6, TOEND_Y);
+  tft.setCursor(6 + X_OFF, TOEND_Y);
   {
     char ts[14];
     if (appState == PEELING) {
@@ -988,14 +989,14 @@ void updateRunContent() {
 void drawSettingsField(int idx, bool active) {
   // 4 fields spaced 24 px apart; fieldY[3]+20=158 leaves room for cal status at y=178.
   const int fieldY[4] = { 68, 92, 116, 140 };
-  tft.fillRect(0, fieldY[idx], SCREEN_W, 20, ST77XX_BLACK);
+  tft.fillRect(X_OFF, fieldY[idx], SCREEN_W, 20, ST77XX_BLACK);
   char vbuf[24];
   if (active) {
     tft.setTextSize(2);
     tft.setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-    tft.setCursor(6, fieldY[idx]);
+    tft.setCursor(6 + X_OFF, fieldY[idx]);
     tft.print(">");
-    tft.setCursor(22, fieldY[idx]);
+    tft.setCursor(22 + X_OFF, fieldY[idx]);
     switch (idx) {
       case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg   ", angle_deg);    break;
       case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s  ", speed_um_s);   break;
@@ -1006,7 +1007,7 @@ void drawSettingsField(int idx, bool active) {
   } else {
     tft.setTextSize(1);
     tft.setTextColor(0x8410 /* mid-gray */, ST77XX_BLACK);
-    tft.setCursor(16, fieldY[idx]);
+    tft.setCursor(16 + X_OFF, fieldY[idx]);
     switch (idx) {
       case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);        break;
       case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);    break;
@@ -1018,7 +1019,7 @@ void drawSettingsField(int idx, bool active) {
 }
 
 void drawSettingsHint(int) {
-  tft.fillRect(0, 54, SCREEN_W, 12, ST77XX_BLACK);  // clear hint area
+  tft.fillRect(X_OFF, 54, SCREEN_W, 12, ST77XX_BLACK);  // clear hint area
 }
 
 void updateSettingsContent() {
@@ -1032,14 +1033,14 @@ void updateSettingsContent() {
     // Full initial draw: title, all fields, cal status
     tft.setTextSize(2);
     tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    tft.setCursor((SCREEN_W - 8 * 12) / 2, STATE_Y);
+    tft.setCursor(X_OFF + (SCREEN_W - 8 * 12) / 2, STATE_Y);
     tft.print("SETTINGS");
     drawSettingsHint(curIdx);
     for (int i = 0; i < 4; i++) drawSettingsField(i, i == curIdx);
     char  vbuf[24];
     float dist_xa_um = stepsToUm(dist_xa_steps);
     tft.setTextSize(1);
-    tft.setCursor(6, 178);
+    tft.setCursor(6 + X_OFF, 178);
     if (dist_xa_steps > 0) {
       tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
       snprintf(vbuf, sizeof(vbuf), "X-A: %.1f um    ", dist_xa_um);
@@ -1090,7 +1091,7 @@ static void drawTopArc(int16_t cx, int16_t cy, int16_t r, uint16_t color) {
 }
 
 void drawWifiIcon(int bars) {
-  const int16_t cx = 120, cy = 26;
+  const int16_t cx = 120 + X_OFF, cy = 26;
   tft.fillRect(cx - 14, cy - 14, 28, 18, ST77XX_BLACK);  // erase old icon
 
   uint16_t color;
@@ -1119,8 +1120,8 @@ void drawWifiIcon(int bars) {
 // =============================================================================
 void initUI() {
   tft.fillScreen(ST77XX_BLACK);
-  tft.drawFastHLine(0, DIV_TOP_Y, SCREEN_W, ST77XX_CYAN);
-  tft.drawFastHLine(0, DIV_BOT_Y, SCREEN_W, ST77XX_CYAN);
+  tft.drawFastHLine(X_OFF, DIV_TOP_Y, SCREEN_W, ST77XX_CYAN);
+  tft.drawFastHLine(X_OFF, DIV_BOT_Y, SCREEN_W, ST77XX_CYAN);
   updateButtons();
   drawWifiIcon(0);
   updateRunContent();
@@ -1138,8 +1139,9 @@ void setup() {
   pinMode(TFT_BL, OUTPUT);
   digitalWrite(TFT_BL, HIGH);
   SPI.begin(18, 19, 23, -1);
-  tft.init(240, 240);
-  tft.setRotation(2);
+  tft.init(240, 320);
+  tft.setRotation(3);
+  tft.invertDisplay(false);
 
   // Buttons
   pinMode(BTN_A, INPUT_PULLUP);
@@ -1499,7 +1501,7 @@ void loop() {
     if (inSettingsScreen) {
       tft.setTextSize(1);
       tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-      tft.setCursor(6, 190);
+      tft.setCursor(6 + X_OFF, 190);
       char ipBuf[30];
       snprintf(ipBuf, sizeof(ipBuf), "%-28s", wifiIpStr);
       tft.print(ipBuf);
@@ -1551,10 +1553,10 @@ void loop() {
       if (currBars != prevRssiBars || clientCount != prevClientCount) {
         drawWifiIcon(currBars);
         // client count to the right of WiFi icon (icon centre cx=120, ends ~x=133)
-        tft.fillRect(134, 18, 22, 10, ST77XX_BLACK);
+        tft.fillRect(134 + X_OFF, 18, 22, 10, ST77XX_BLACK);
         tft.setTextSize(1);
         tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-        tft.setCursor(136, 20);
+        tft.setCursor(136 + X_OFF, 20);
         tft.print(clientCount);
         prevRssiBars   = currBars;
         prevClientCount = clientCount;
