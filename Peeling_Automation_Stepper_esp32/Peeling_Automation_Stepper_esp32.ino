@@ -10,7 +10,7 @@
 // --------
 // Firmware for a stepper-motor-driven thin-sheet peeling instrument.
 // Controls a NEMA 17 via DM542T driver on a Wemos D1 R32 (ESP32)
-// with a 240×240 ST7789 display and 4 external buttons.
+// with a 2.8″ 240×320 ST7789 display and 4 external buttons.
 //
 // HARDWARE
 // --------
@@ -20,7 +20,7 @@
 //       – t1: ENA→first PUL ≥ 200 ms (firmware uses 500 ms delay)
 //       – t2: DIR stable before PUL ≥ 5 µs (setDirectionPin 40 µs)
 //   • Microswitches: X = home end, Y = far end
-//   • ST7789 240×240 TFT display (SPI/VSPI; RST → GPIO 2)
+//   • 2.8″ ST7789 240×320 TFT display (SPI/VSPI; RST → GPIO 2)
 //   • 4 external push-buttons: A (start/stop), B (settings/home), X (increment/CAL), Y (decrement)
 //
 // PIN ASSIGNMENT
@@ -34,6 +34,7 @@
 //   GPIO 12  — BTN_Y  (UI: settings: decrement; no-op outside settings)
 //   GPIO 13  — LIMIT_SW_X (home/X limit switch, active-low)
 //   GPIO 36  — LIMIT_SW_Y (far/Y limit switch, active-low, external 10kΩ pull-up to 3.3V)
+//   GPIO  2  — TFT_RST
 //   GPIO 17  — TFT_DC
 //   GPIO  5  — TFT_CS
 //   GPIO 18  — SPI SCK  (VSPI default)
@@ -1495,8 +1496,8 @@ void loop() {
     }
 
     // Redraw dividers (may be overwritten by fillRect in clearContent)
-    tft.drawFastHLine(0, DIV_TOP_Y, SCREEN_W, ST77XX_CYAN);
-    tft.drawFastHLine(0, DIV_BOT_Y, SCREEN_W, ST77XX_CYAN);
+    tft.drawFastHLine(X_OFF, DIV_TOP_Y, SCREEN_W, ST77XX_CYAN);
+    tft.drawFastHLine(X_OFF, DIV_BOT_Y, SCREEN_W, ST77XX_CYAN);
 
     // IP line in settings screen (redrawn every tick so it updates when WiFi connects)
     if (inSettingsScreen) {
