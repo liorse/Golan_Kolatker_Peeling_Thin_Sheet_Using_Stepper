@@ -20,7 +20,7 @@
 //       – t1: ENA→first PUL ≥ 200 ms (firmware uses 500 ms delay)
 //       – t2: DIR stable before PUL ≥ 5 µs (setDirectionPin 40 µs)
 //   • Microswitches: X = home end, Y = far end
-//   • ST7789 240×240 TFT display (SPI/VSPI; RST not connected — power-on reset only)
+//   • ST7789 240×240 TFT display (SPI/VSPI; RST → GPIO 2)
 //   • 4 external push-buttons: A (start/stop), B (settings/home), X (increment/CAL), Y (decrement)
 //
 // PIN ASSIGNMENT
@@ -86,7 +86,7 @@
 // ---- Display pins -----------------------------------------------------------
 #define TFT_CS    5
 #define TFT_DC   17
-#define TFT_RST  -1
+#define TFT_RST   2
 #define TFT_BL   16
 
 // ---- Button pins (active-low, INPUT_PULLUP) ---------------------------------
@@ -1137,7 +1137,7 @@ void setup() {
 
   // Display — VSPI defaults: SCK=18, MISO=19, MOSI=23
   pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, HIGH);
+  digitalWrite(TFT_BL, LOW);   // keep backlight OFF until display is fully initialized
   SPI.begin(18, 19, 23, -1);
   tft.init(240, 320);
   tft.setRotation(3);
@@ -1167,8 +1167,9 @@ void setup() {
     stepper->setAcceleration(2147483647);
   }
 
-  // Draw UI
+  // Draw UI, then enable backlight so users never see the white uninitialized screen
   initUI();
+  digitalWrite(TFT_BL, HIGH);
 
   // WiFi — non-blocking station mode; server starts once connected (see loop)
   WiFi.mode(WIFI_STA);
