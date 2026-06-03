@@ -22,6 +22,7 @@ const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=SW-BTN_W-3,BTN_TOP_Y=3,BTN_BOT_
 const DIV_TOP_Y=33,DIV_BOT_Y=207;
 const STATE_Y=36,POS_Y=56,SETSPD_Y=76,RUNSPD_Y=96,ANGLE_Y=116,TOEND_Y=136,PEELT_Y=156;
 const BAR_X=20,BAR_Y=178,BAR_W=200,BAR_H=12;
+const TEMP_Y=193;
 const fieldY=[68,92,116,140];
 const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484'};
 const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
@@ -171,6 +172,12 @@ function drawRunScreen(d){
   }
   ctx.fillStyle=C.CY;ctx.fillRect(BAR_X+1,BAR_Y+1,filled,BAR_H-2);
   ctx.fillStyle=C.BK;ctx.fillRect(BAR_X+1+filled,BAR_Y+1,BAR_W-2-filled,BAR_H-2);
+
+  if(d.temp_c===null||d.temp_c===undefined){
+    drawText('T:  -- FAULT --     ',6,TEMP_Y,1,C.RE,C.BK);
+  } else {
+    drawText(('T: '+d.temp_c.toFixed(1)+' C').padEnd(20),6,TEMP_Y,1,C.GR,C.BK);
+  }
 }
 
 function drawSettingsField(d,idx,active){

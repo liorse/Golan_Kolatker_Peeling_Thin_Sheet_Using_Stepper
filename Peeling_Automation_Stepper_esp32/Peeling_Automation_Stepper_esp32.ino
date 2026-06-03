@@ -2,8 +2,8 @@
 // Project   : Peeling Thin Sheet Using Stepper Motor — ESP32 Controller
 // File      : Peeling_Automation_Stepper_esp32.ino
 // Author    : Lior Segev
-// Version   : 4.2.0-esp32
-// Date      : May 17, 2026
+// Version   : 4.3.0-esp32
+// Date      : June 3, 2026
 // =============================================================================
 //
 // OVERVIEW
@@ -29,7 +29,7 @@
 //   GPIO 25  — DIR+ (DIR- tied to GND)
 //   GPIO 27  — PUL+ (PUL- tied to GND)
 //   GPIO  4  — BTN_A  (UI: start/stop; settings: navigate up)
-//   GPIO 19  — BTN_B  (UI: settings/home; settings: navigate down / exit+save)
+//   GPIO 33  — BTN_B  (UI: settings/home; settings: navigate down / exit+save)
 //   GPIO 14  — BTN_X  (UI: settings: increment/CAL trigger; no-op outside settings)
 //   GPIO 12  — BTN_Y  (UI: settings: decrement; no-op outside settings)
 //   GPIO 13  — LIMIT_SW_X (home/X limit switch, active-low)
@@ -37,9 +37,12 @@
 //   GPIO  2  — TFT_RST
 //   GPIO 17  — TFT_DC
 //   GPIO  5  — TFT_CS
-//   GPIO 18  — SPI SCK  (VSPI default)
-//   GPIO 23  — SPI MOSI (VSPI default)
+//   GPIO 18  — SPI SCK  (VSPI default, shared with MAX31856)
+//   GPIO 23  — SPI MOSI (VSPI default, shared with MAX31856)
+//   GPIO 19  — SPI MISO (VSPI default; MAX31856 SDO)
 //   GPIO 16  — TFT_BL
+//   GPIO 21  — MAX31856 CS  (thermocouple amplifier)
+//   GPIO 22  — MAX31856 DRDY (data-ready; LOW when conversion complete)
 //
 // UNIT CONVERSION
 // ---------------
@@ -70,6 +73,7 @@
 #include <FastAccelStepper.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
+#include <Adafruit_MAX31856.h>
 #include <SPI.h>
 #include <EEPROM.h>
 #include <math.h>
@@ -92,11 +96,15 @@
 
 // ---- Button pins (active-low, INPUT_PULLUP) ---------------------------------
 #define BTN_A    4   // UI: start / stop; in settings: navigate up
-#define BTN_B   19   // UI: settings / home; in settings: navigate down / exit+save
+#define BTN_B   33   // UI: settings / home; in settings: navigate down / exit+save
 #define BTN_X   14   // UI: in settings: increment (+) or trigger CAL; no-op outside settings
 #define BTN_Y   12   // UI: in settings: decrement (−); no-op outside settings  GPIO12: strapping pin — WROOM pull-down holds it LOW at boot (safe)
 #define LIMIT_SW_X 13  // home/X limit switch (active-low, INPUT_PULLUP)
 #define LIMIT_SW_Y 36  // far/Y  limit switch (active-low, external 10kΩ pull-up) — input-only pin, no internal pull-up
+
+// ---- MAX31856 thermocouple amplifier (VSPI shared with display) ---------------
+#define MAX_CS    21
+#define MAX_DRDY  22
 
 // ---- Display geometry -------------------------------------------------------
 #define SCREEN_W   240
@@ -125,6 +133,7 @@
 #define BAR_Y     178   // 12 px bar → ends 190; bottom divider at 207
 #define BAR_W     200
 #define BAR_H      12
+#define TEMP_Y    193   // textSize 1 (8 px) → ends 201; fits gap between bar and divider at 207
 
 // ---- Physical constants -----------------------------------------------------
 // 1 full motor revolution = 1.5 mm linear travel.
@@ -137,6 +146,10 @@ FastAccelStepper       *stepper = NULL;
 
 // ---- Display ----------------------------------------------------------------
 Adafruit_ST7789 tft = Adafruit_ST7789(&SPI, TFT_CS, TFT_DC, TFT_RST);
+
+// ---- Thermocouple -----------------------------------------------------------
+Adafruit_MAX31856 thermo(MAX_CS);   // hardware VSPI; DRDY read via digitalRead(MAX_DRDY)
+float lastTempC = NAN;              // NAN until first valid reading
 
 // ---- Persistent storage -----------------------------------------------------
 #define EEPROM_MAGIC  0x50454C34u   // "PEL4" — microstep field removed
@@ -321,6 +334,7 @@ const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=SW-BTN_W-3,BTN_TOP_Y=3,BTN_BOT_
 const DIV_TOP_Y=33,DIV_BOT_Y=207;
 const STATE_Y=36,POS_Y=56,SETSPD_Y=76,RUNSPD_Y=96,ANGLE_Y=116,TOEND_Y=136,PEELT_Y=156;
 const BAR_X=20,BAR_Y=178,BAR_W=200,BAR_H=12;
+const TEMP_Y=193;
 const fieldY=[68,92,116,140];
 const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484'};
 const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
@@ -470,6 +484,12 @@ function drawRunScreen(d){
   }
   ctx.fillStyle=C.CY;ctx.fillRect(BAR_X+1,BAR_Y+1,filled,BAR_H-2);
   ctx.fillStyle=C.BK;ctx.fillRect(BAR_X+1+filled,BAR_Y+1,BAR_W-2-filled,BAR_H-2);
+
+  if(d.temp_c===null||d.temp_c===undefined){
+    drawText('T:  -- FAULT --     ',6,TEMP_Y,1,C.RE,C.BK);
+  } else {
+    drawText(('T: '+d.temp_c.toFixed(1)+' C').padEnd(20),6,TEMP_Y,1,C.GR,C.BK);
+  }
 }
 
 function drawSettingsField(d,idx,active){
@@ -981,6 +1001,18 @@ void updateRunContent() {
   }
   tft.fillRect(BAR_X + 1,          BAR_Y + 1, filled,              BAR_H - 2, ST77XX_CYAN);
   tft.fillRect(BAR_X + 1 + filled, BAR_Y + 1, BAR_W - 2 - filled, BAR_H - 2, ST77XX_BLACK);
+
+  // ---- Temperature (textSize 1 fits in 8 px gap between bar and divider) ----
+  tft.setTextSize(1);
+  tft.setCursor(6 + X_OFF, TEMP_Y);
+  if (isnan(lastTempC)) {
+    tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
+    tft.print("T: -- FAULT --      ");
+  } else {
+    tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+    snprintf(buf, sizeof(buf), "T: %6.1f C         ", lastTempC);
+    tft.print(buf);
+  }
 }
 
 
@@ -1144,6 +1176,12 @@ void setup() {
   tft.setRotation(3);
   tft.invertDisplay(false);
 
+  // MAX31856 thermocouple amplifier (shares VSPI; SPI.begin() already called above)
+  pinMode(MAX_DRDY, INPUT);
+  thermo.begin();
+  thermo.setThermocoupleType(MAX31856_TCTYPE_K);
+  thermo.setConversionMode(MAX31856_CONTINUOUS);
+
   // Buttons
   pinMode(BTN_A, INPUT_PULLUP);
   pinMode(BTN_B, INPUT_PULLUP);
@@ -1210,7 +1248,11 @@ static void sendWsJson() {
     default:              stateStr = "IDLE";      break;
   }
 
-  char json[360];
+  char tempBuf[12];
+  if (isnan(lastTempC)) snprintf(tempBuf, sizeof(tempBuf), "null");
+  else                  snprintf(tempBuf, sizeof(tempBuf), "%.1f", lastTempC);
+
+  char json[400];
   snprintf(json, sizeof(json),
     "{\"state\":\"%s\","
     "\"position\":%d,"
@@ -1229,6 +1271,7 @@ static void sendWsJson() {
     "\"btn\":[%s,%s,%s,%s],"
     "\"rssi\":%d,"
     "\"clients\":%d,"
+    "\"temp_c\":%s,"
     "\"ip\":\"%s\"}",
     stateStr,
     (int)stepper->getCurrentPosition(),
@@ -1250,6 +1293,7 @@ static void sendWsJson() {
     btnDown[IDX_Y] ? "true" : "false",
     rssi,
     (int)ws.count(),
+    tempBuf,
     wifiIpStr
   );
 
@@ -1542,6 +1586,12 @@ void loop() {
       }
     }
 
+    // ---- Temperature reading (non-blocking: check DRDY then read) ---------------
+    if (digitalRead(MAX_DRDY) == LOW) {
+      float t = thermo.readThermocoupleTemperature();
+      lastTempC = thermo.readFault() ? NAN : t;
+    }
+
     // Periodic JSON heartbeat — Serial + WebSocket broadcast
     {
       float pos_um      = stepsToUm(stepper->getCurrentPosition());
@@ -1576,7 +1626,11 @@ void loop() {
         default:              stateStr = "IDLE";      break;
       }
 
-      char json[360];
+      char tempBuf[12];
+      if (isnan(lastTempC)) snprintf(tempBuf, sizeof(tempBuf), "null");
+      else                  snprintf(tempBuf, sizeof(tempBuf), "%.1f", lastTempC);
+
+      char json[400];
       snprintf(json, sizeof(json),
         "{\"state\":\"%s\","
         "\"position\":%d,"
@@ -1595,6 +1649,7 @@ void loop() {
         "\"btn\":[%s,%s,%s,%s],"
         "\"rssi\":%d,"
         "\"clients\":%d,"
+        "\"temp_c\":%s,"
         "\"ip\":\"%s\"}",
         stateStr,
         (int)stepper->getCurrentPosition(),
@@ -1616,6 +1671,7 @@ void loop() {
         btnDown[IDX_Y] ? "true" : "false",
         rssi,
         (int)ws.count(),
+        tempBuf,
         wifiIpStr
       );
 
