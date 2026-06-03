@@ -43,6 +43,7 @@
 //   GPIO 16  — TFT_BL
 //   GPIO 21  — MAX31856 CS  (thermocouple amplifier)
 //   GPIO 22  — MAX31856 DRDY (data-ready; LOW when conversion complete)
+//   GPIO 32  — HEATER_PIN (LEDC ch0, 1 kHz PWM → N-channel MOSFET gate)
 //
 // UNIT CONVERSION
 // ---------------
@@ -105,6 +106,9 @@
 // ---- MAX31856 thermocouple amplifier (VSPI shared with display) ---------------
 #define MAX_CS    21
 #define MAX_DRDY  22
+
+// ---- Heater MOSFET (LEDC, 1 kHz, 8-bit) ------------------------------------
+#define HEATER_PIN  32
 
 // ---- Display geometry -------------------------------------------------------
 #define SCREEN_W   240
@@ -1185,6 +1189,11 @@ void setup() {
   thermo.setConversionMode(MAX31856_CONTINUOUS);
   lastDrdyHighMs = millis();   // prevent false watchdog trigger during boot
 
+  // Heater MOSFET — LEDC 10 Hz, 8-bit, starts off
+  bool heaterOk = ledcAttach(HEATER_PIN, 10, 8);
+  ledcWrite(HEATER_PIN, 0);
+  Serial.printf("[heater] ledcAttach GPIO%d: %s\n", HEATER_PIN, heaterOk ? "OK" : "FAILED");
+
   // Buttons
   pinMode(BTN_A, INPUT_PULLUP);
   pinMode(BTN_B, INPUT_PULLUP);
@@ -1460,6 +1469,15 @@ void loop() {
         stepper->setSpeedInHz(100);
         stepper->moveTo(pos);
         updateButtons();
+        break;
+      }
+      case 'h': {
+        // h<duty>  — set heater duty 0–255 (e.g. h128 = 50%)
+        int32_t duty = Serial.parseInt();
+        duty = constrain(duty, 0, 255);
+        ledcWrite(HEATER_PIN, (uint8_t)duty);
+        Serial.printf("{\"heater_duty\":%d,\"heater_freq_hz\":%u}\n",
+                      (int)duty, (unsigned)ledcReadFreq(HEATER_PIN));
         break;
       }
       case 'b': {
