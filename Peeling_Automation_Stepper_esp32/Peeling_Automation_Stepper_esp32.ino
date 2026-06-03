@@ -149,7 +149,9 @@ Adafruit_ST7789 tft = Adafruit_ST7789(&SPI, TFT_CS, TFT_DC, TFT_RST);
 
 // ---- Thermocouple -----------------------------------------------------------
 Adafruit_MAX31856 thermo(MAX_CS);   // hardware VSPI; DRDY read via digitalRead(MAX_DRDY)
-float lastTempC = NAN;              // NAN until first valid reading
+float         lastTempC      = NAN; // NAN until first valid reading
+unsigned long lastTempReadMs = 0;   // millis() of last SPI read (rate-limit to one per ~130 ms)
+unsigned long lastDrdyHighMs = 0;   // millis() when DRDY was last seen HIGH; init in setup()
 
 // ---- Persistent storage -----------------------------------------------------
 #define EEPROM_MAGIC  0x50454C34u   // "PEL4" — microstep field removed
@@ -1181,6 +1183,7 @@ void setup() {
   thermo.begin();
   thermo.setThermocoupleType(MAX31856_TCTYPE_K);
   thermo.setConversionMode(MAX31856_CONTINUOUS);
+  lastDrdyHighMs = millis();   // prevent false watchdog trigger during boot
 
   // Buttons
   pinMode(BTN_A, INPUT_PULLUP);
@@ -1586,10 +1589,28 @@ void loop() {
       }
     }
 
-    // ---- Temperature reading (non-blocking: check DRDY then read) ---------------
-    if (digitalRead(MAX_DRDY) == LOW) {
-      float t = thermo.readThermocoupleTemperature();
-      lastTempC = thermo.readFault() ? NAN : t;
+    // ---- Temperature reading (non-blocking, rate-limited, with watchdog) -------
+    {
+      bool drdyLow = (digitalRead(MAX_DRDY) == LOW);
+      if (drdyLow) {
+        unsigned long nowMs = millis();
+        if (nowMs - lastTempReadMs >= 130) {       // one read per ~143 ms conversion window
+          float t      = thermo.readThermocoupleTemperature();
+          lastTempC    = thermo.readFault() ? NAN : t;
+          lastTempReadMs = nowMs;
+          lastDrdyHighMs = nowMs;                  // successful read = chip alive
+        }
+        // Watchdog: DRDY stuck LOW for >3 s means chip is confused — reinit
+        if (millis() - lastDrdyHighMs > 3000) {
+          thermo.begin();
+          thermo.setThermocoupleType(MAX31856_TCTYPE_K);
+          thermo.setConversionMode(MAX31856_CONTINUOUS);
+          lastTempC      = NAN;
+          lastDrdyHighMs = millis();
+        }
+      } else {
+        lastDrdyHighMs = millis();                 // DRDY HIGH = chip healthy
+      }
     }
 
     // Periodic JSON heartbeat — Serial + WebSocket broadcast
