@@ -107,7 +107,7 @@
 #define MAX_CS    21
 #define MAX_DRDY  22
 
-// ---- Heater MOSFET (LEDC, 1 kHz, 8-bit) ------------------------------------
+// ---- Heater MOSFET (LEDC, 10 Hz, 8-bit) ------------------------------------
 #define HEATER_PIN  32
 
 // ---- Display geometry -------------------------------------------------------
@@ -156,6 +156,9 @@ Adafruit_MAX31856 thermo(MAX_CS);   // hardware VSPI; DRDY read via digitalRead(
 float         lastTempC      = NAN; // NAN until first valid reading
 unsigned long lastTempReadMs = 0;   // millis() of last SPI read (rate-limit to one per ~130 ms)
 unsigned long lastDrdyHighMs = 0;   // millis() when DRDY was last seen HIGH; init in setup()
+
+// ---- Heater state -----------------------------------------------------------
+uint8_t heaterDuty = 0;            // current LEDC duty (0–255); updated by 'h' serial command
 
 // ---- Persistent storage -----------------------------------------------------
 #define EEPROM_MAGIC  0x50454C34u   // "PEL4" — microstep field removed
@@ -1264,7 +1267,7 @@ static void sendWsJson() {
   if (isnan(lastTempC)) snprintf(tempBuf, sizeof(tempBuf), "null");
   else                  snprintf(tempBuf, sizeof(tempBuf), "%.1f", lastTempC);
 
-  char json[400];
+  char json[430];
   snprintf(json, sizeof(json),
     "{\"state\":\"%s\","
     "\"position\":%d,"
@@ -1284,6 +1287,7 @@ static void sendWsJson() {
     "\"rssi\":%d,"
     "\"clients\":%d,"
     "\"temp_c\":%s,"
+    "\"heater_duty\":%d,"
     "\"ip\":\"%s\"}",
     stateStr,
     (int)stepper->getCurrentPosition(),
@@ -1306,6 +1310,7 @@ static void sendWsJson() {
     rssi,
     (int)ws.count(),
     tempBuf,
+    (int)heaterDuty,
     wifiIpStr
   );
 
@@ -1475,9 +1480,10 @@ void loop() {
         // h<duty>  — set heater duty 0–255 (e.g. h128 = 50%)
         int32_t duty = Serial.parseInt();
         duty = constrain(duty, 0, 255);
-        ledcWrite(HEATER_PIN, (uint8_t)duty);
+        heaterDuty = (uint8_t)duty;
+        ledcWrite(HEATER_PIN, heaterDuty);
         Serial.printf("{\"heater_duty\":%d,\"heater_freq_hz\":%u}\n",
-                      (int)duty, (unsigned)ledcReadFreq(HEATER_PIN));
+                      (int)heaterDuty, (unsigned)ledcReadFreq(HEATER_PIN));
         break;
       }
       case 'b': {
@@ -1669,7 +1675,7 @@ void loop() {
       if (isnan(lastTempC)) snprintf(tempBuf, sizeof(tempBuf), "null");
       else                  snprintf(tempBuf, sizeof(tempBuf), "%.1f", lastTempC);
 
-      char json[400];
+      char json[430];
       snprintf(json, sizeof(json),
         "{\"state\":\"%s\","
         "\"position\":%d,"
@@ -1689,6 +1695,7 @@ void loop() {
         "\"rssi\":%d,"
         "\"clients\":%d,"
         "\"temp_c\":%s,"
+        "\"heater_duty\":%d,"
         "\"ip\":\"%s\"}",
         stateStr,
         (int)stepper->getCurrentPosition(),
@@ -1711,6 +1718,7 @@ void loop() {
         rssi,
         (int)ws.count(),
         tempBuf,
+        (int)heaterDuty,
         wifiIpStr
       );
 

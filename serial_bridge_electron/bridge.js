@@ -34,7 +34,7 @@ const CH340_VID = '1a86';
 const CH340_PID = '7523';
 
 const HTML_PATH = path.join(__dirname, 'index.html');
-const LOG_COLUMNS = ['timestamp', 'time_ms', 'pos_um', 'speed_um_s', 'state'];
+const LOG_COLUMNS = ['timestamp', 'time_ms', 'pos_um', 'speed_um_s', 'temp_c', 'heater_duty', 'state'];
 
 // ── Runtime state ─────────────────────────────────────────────────────────────
 let clients    = new Set();   // active WebSocket connections
@@ -91,6 +91,8 @@ function logRow(obj) {
     obj.peel_elapsed_ms || 0,
     Number(obj.pos_um   || 0).toFixed(2),
     Number(obj.speed_um || 0).toFixed(3),
+    obj.temp_c != null ? Number(obj.temp_c).toFixed(1) : '',
+    obj.heater_duty != null ? obj.heater_duty : '',
     obj.state || '',
   ];
   logStream.write(row.join(',') + '\n');
