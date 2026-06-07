@@ -33,7 +33,7 @@
 //   GPIO 14  — BTN_X  (UI: settings: increment/CAL trigger; no-op outside settings)
 //   GPIO 12  — BTN_Y  (UI: settings: decrement; no-op outside settings)
 //   GPIO 13  — LIMIT_SW_X (home/X limit switch, active-low)
-//   GPIO 36  — LIMIT_SW_Y (far/Y limit switch, active-low, external 10kΩ pull-up to 3.3V)
+//   GPIO 15  — LIMIT_SW_Y (far/Y limit switch, active-low, INPUT_PULLUP)
 //   GPIO  2  — TFT_RST
 //   GPIO 17  — TFT_DC
 //   GPIO  5  — TFT_CS
@@ -101,7 +101,7 @@
 #define BTN_X   14   // UI: in settings: increment (+) or trigger CAL; no-op outside settings
 #define BTN_Y   12   // UI: in settings: decrement (−); no-op outside settings  GPIO12: strapping pin — WROOM pull-down holds it LOW at boot (safe)
 #define LIMIT_SW_X 13  // home/X limit switch (active-low, INPUT_PULLUP)
-#define LIMIT_SW_Y 36  // far/Y  limit switch (active-low, external 10kΩ pull-up) — input-only pin, no internal pull-up
+#define LIMIT_SW_Y 15  // far/Y  limit switch (active-low, INPUT_PULLUP)
 
 // ---- MAX31856 thermocouple amplifier (VSPI shared with display) ---------------
 #define MAX_CS    21
@@ -1777,7 +1777,7 @@ void setup() {
   pinMode(BTN_X, INPUT_PULLUP);
   pinMode(BTN_Y, INPUT_PULLUP);
   pinMode(LIMIT_SW_X, INPUT_PULLUP);
-  pinMode(LIMIT_SW_Y, INPUT);  // input-only pin — pull-up is external 10kΩ to 3.3V
+  pinMode(LIMIT_SW_Y, INPUT_PULLUP);
 
   // Load saved settings (also calls updateMicronsPerStep internally)
   loadPrefs();
@@ -2020,6 +2020,8 @@ void loop() {
       if (appState == CAL_HOMING) {
         stepper->setSpeedInHz(calSpeedHz());
         stepper->runForward();
+        limitYStableAt = 0;   // discard any Y noise accumulated during homing
+        limitYPrev     = false;
         appState = CAL_RUNNING;
       } else {
         disableMotor();
@@ -2028,7 +2030,7 @@ void loop() {
       updateButtons();
     }
   } else if (appState == CAL_RUNNING) {
-    if (curLimY) {                              // far-end switch triggered
+    if (yNewPress) {                            // far-end switch: edge+debounce guards against motor-startup transients on GPIO36
       dist_xa_steps = stepper->getCurrentPosition();
       stepper->forceStop();
       disableMotor();

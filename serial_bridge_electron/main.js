@@ -17,11 +17,30 @@
  *   npm run dist:win       → dist/  (.exe installer + portable)
  */
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
-const { startBridge, stopBridge } = require('./bridge');
+const fs   = require('fs');
+const { startBridge, stopBridge, setLogsDir } = require('./bridge');
 
-const HTTP_PORT = 8080;
+const HTTP_PORT    = 8080;
+const SETTINGS_KEY = 'logsDir';
+
+// Persist a single settings.json in userData (no extra npm dependency needed)
+function loadSettings(settingsPath) {
+  try {
+    return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveSettings(settingsPath, data) {
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('Could not save settings:', e.message);
+  }
+}
 
 // Electron argv when run as "electron . [userArgs]":
 //   process.argv = ['electron', '/path/to/main.js', ...userArgs]
@@ -39,19 +58,22 @@ function getPortArg() {
   return raw[0] || null;
 }
 
-let win = null;
+let win          = null;
+let currentLogsDir = null;
+let settingsPath   = null;
 
 function createWindow() {
   win = new BrowserWindow({
     width: 560,
-    height: 640,
+    height: 660,
     minWidth: 400,
-    minHeight: 500,
+    minHeight: 520,
     title: 'Peeling Controller',
     backgroundColor: '#111111',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
@@ -63,10 +85,36 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   const portArg = getPortArg();
-  const logsDir = path.join(app.getPath('userData'), 'logs');
+  settingsPath  = path.join(app.getPath('userData'), 'settings.json');
+
+  const settings = loadSettings(settingsPath);
+  currentLogsDir = settings[SETTINGS_KEY] || path.join(app.getPath('userData'), 'logs');
+
+  // IPC: return current logs directory
+  ipcMain.handle('get-logs-dir', () => currentLogsDir);
+
+  // IPC: open native folder picker, persist choice, notify bridge
+  ipcMain.handle('choose-logs-dir', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title:       'Choose log folder',
+      defaultPath: currentLogsDir,
+      properties:  ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+
+    const chosen = result.filePaths[0];
+    currentLogsDir = chosen;
+    setLogsDir(chosen);
+
+    const s = loadSettings(settingsPath);
+    s[SETTINGS_KEY] = chosen;
+    saveSettings(settingsPath, s);
+
+    return chosen;
+  });
 
   try {
-    await startBridge({ httpPort: HTTP_PORT, portArg, logsDir });
+    await startBridge({ httpPort: HTTP_PORT, portArg, logsDir: currentLogsDir });
   } catch (err) {
     console.error('Bridge failed to start:', err);
     app.quit();

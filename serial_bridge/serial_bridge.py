@@ -87,12 +87,14 @@ LOG_COLUMNS = ["timestamp", "time_ms", "pos_um", "speed_um_s", "state"]
 def _log_open(obj: dict) -> None:
     """Open a new CSV log file for a peeling run."""
     global _log_file, _log_writer, _log_rows
-    LOG_DIR.mkdir(exist_ok=True)
-    ts    = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    ang   = int(obj.get("angle", 0))
-    spd     = float(obj.get("speed_set", 0.0))
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    ts      = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    ang     = int(obj.get("angle", 0))
+    spd     = float(obj.get("speed_set",     0.0))
+    tmp     = float(obj.get("temp_setpoint", 0.0))
     spd_str = f"{spd:.1f}".replace('.', 'p')   # e.g. 1.5 → "1p5" (no dots in stem)
-    fname = LOG_DIR / f"peel_{ts}_ang{ang}_spd{spd_str}.csv"
+    tmp_str = f"{tmp:.1f}".replace('.', 'p')
+    fname   = LOG_DIR / f"peel_{ts}_ang{ang}_spd{spd_str}_tmp{tmp_str}.csv"
     _log_file   = open(fname, "w", newline="", encoding="utf-8")
     _log_writer = csv.writer(_log_file)
     _log_writer.writerow(LOG_COLUMNS)
@@ -345,7 +347,11 @@ async def _serial_loop(port_arg: Optional[str], http_port: int) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
-async def _async_main(port_arg: Optional[str], http_port: int) -> None:
+async def _async_main(port_arg: Optional[str], http_port: int, logs_dir: Optional[str]) -> None:
+    global LOG_DIR
+    if logs_dir:
+        LOG_DIR = Path(logs_dir)
+
     if not HTML_PATH.exists():
         sys.exit(f"HTML file not found: {HTML_PATH}\n"
                  "Run from the serial_bridge/ directory or re-check the path.")
@@ -371,10 +377,13 @@ def main() -> None:
     ap.add_argument(
         '--http-port', type=int, default=8080, metavar='PORT',
         help='HTTP port for the web UI (default: 8080)')
+    ap.add_argument(
+        '--logs-dir', default=None, metavar='DIR',
+        help='Directory for CSV logs (default: logs/ next to this script)')
     args = ap.parse_args()
 
     try:
-        asyncio.run(_async_main(args.port, args.http_port))
+        asyncio.run(_async_main(args.port, args.http_port, args.logs_dir))
     except KeyboardInterrupt:
         print("\nBridge stopped.")
 

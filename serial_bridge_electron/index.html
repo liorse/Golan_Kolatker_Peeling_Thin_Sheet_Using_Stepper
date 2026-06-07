@@ -16,6 +16,7 @@ canvas{image-rendering:pixelated;width:640px;aspect-ratio:4/3;max-width:100vw;}
 <canvas id="c" width="320" height="240"></canvas>
 <div id="ws-status">connecting... <span id="serial-badge">&#128268; SERIAL</span></div>
 <div id="log-status"></div>
+<div id="log-folder-bar" style="display:none;font-family:monospace;font-size:11px;color:#555;margin-top:3px;cursor:pointer;user-select:none;" title="Click to change log folder">&#128193; <span id="log-folder-path" style="color:#888;"></span></div>
 <script>
 const SW=320,SH=240;
 const LEFT_W=200;
@@ -23,7 +24,7 @@ const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=LEFT_W-BTN_W-3,BTN_TOP_Y=3,BTN_
 const DIV_TOP_Y=33,DIV_BOT_Y=207;
 const STATE_Y=36,POS_Y=56,SETSPD_Y=76,RUNSPD_Y=96,ANGLE_Y=116,TOEND_Y=136,PEELT_Y=156;
 const BAR_X=20,BAR_Y=178,BAR_W=168,BAR_H=12;
-const fieldY=[60,82,104,126,148];
+const fieldY=[60,82,104,126,148,170];
 const tempFieldY=[60,82,104,126,148,170];
 const TCOL_X=200,TCOL_W=120;
 const TBAR_X=209,TBAR_W=40,TBAR_TOP=46,TBAR_BOT=220,TBAR_H=TBAR_BOT-TBAR_TOP;
@@ -123,6 +124,7 @@ function drawButtons(d){
     }else{
       if(d.settings_field===3) xLbl='CAL';
       else if(d.settings_field===4) xLbl='OPEN';
+      else if(d.settings_field===5){xLbl='YES';yLbl='NO';}
     }
     drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,xLbl,btn[2],2);
     drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,yLbl,btn[3],2);
@@ -198,6 +200,7 @@ function drawSettingsField(d,idx,active){
       case 2:vbuf='ST: '+d.start_pos_um.toFixed(0)+'um   ';break;
       case 3:vbuf='CAL:press CAL';break;
       case 4:vbuf='TEMP SETTINGS';break;
+      case 5:vbuf=d.wait_for_temp?'WAIT:YES     ':'WAIT:NO      ';break;
     }
     drawText(vbuf,22,fieldY[idx],2,C.YE,C.BK);
   }else{
@@ -207,6 +210,7 @@ function drawSettingsField(d,idx,active){
       case 2:vbuf='START: '+d.start_pos_um.toFixed(0)+' um';break;
       case 3:vbuf='CAL (press CAL)';break;
       case 4:vbuf='TEMP (press OPEN)';break;
+      case 5:vbuf=d.wait_for_temp?'WAIT TEMP: YES':'WAIT TEMP: NO';break;
     }
     drawText(vbuf,16,fieldY[idx],1,C.GY,C.BK);
   }
@@ -252,15 +256,13 @@ function drawSettingsScreen(d){
   }else{
     drawText('SETTINGS',Math.floor((LEFT_W-8*12)/2),STATE_Y,2,C.WH,C.BK);
     ctx.fillStyle=C.BK;ctx.fillRect(0,54,LEFT_W,6);
-    for(let i=0;i<5;i++) drawSettingsField(d,i,i===d.settings_field);
-    ctx.fillStyle=C.BK;ctx.fillRect(0,170,LEFT_W,10);
+    for(let i=0;i<6;i++) drawSettingsField(d,i,i===d.settings_field);
+    ctx.fillStyle=C.BK;ctx.fillRect(0,190,LEFT_W,4);
     if(d.dist_xa_steps>0){
-      drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,172,1,C.GR,C.BK);
+      drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,194,1,C.GR,C.BK);
     }else{
-      drawText('NOT CALIBRATED      ',6,172,1,C.RE,C.BK);
+      drawText('NOT CALIBRATED      ',6,194,1,C.RE,C.BK);
     }
-    ctx.fillStyle=C.BK;ctx.fillRect(0,183,LEFT_W,10);
-    drawText(padEnd(d.ip||'',28),6,185,1,C.CY,C.BK);
   }
 }
 
@@ -404,6 +406,16 @@ cv.addEventListener('touchend',e=>{
   const x=(t.clientX-r.left)*SW/r.width,y=(t.clientY-r.top)*SH/r.height;
   const b=hitRegion(x,y);if(b)sendBtn(b,'release');
 },{passive:false});
+
+if(window.electronAPI){
+  const folderBar=document.getElementById('log-folder-bar');
+  const folderPath=document.getElementById('log-folder-path');
+  folderBar.style.display='block';
+  window.electronAPI.getLogsDir().then(d=>{folderPath.textContent=d;});
+  folderBar.addEventListener('click',()=>{
+    window.electronAPI.chooseLogsDir().then(d=>{if(d)folderPath.textContent=d;});
+  });
+}
 </script>
 </body>
 </html>

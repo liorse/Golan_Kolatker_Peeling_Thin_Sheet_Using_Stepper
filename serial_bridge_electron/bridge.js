@@ -75,8 +75,9 @@ function logOpen(obj) {
 
   const ts     = stampFile(new Date());
   const ang    = parseInt(obj.angle || 0);
-  const spd    = parseFloat(obj.speed_set || 0).toFixed(1).replace('.', 'p');
-  const fname  = path.join(logsDir, `peel_${ts}_ang${ang}_spd${spd}.csv`);
+  const spd    = parseFloat(obj.speed_set    || 0).toFixed(1).replace('.', 'p');
+  const tmp    = parseFloat(obj.temp_setpoint || 0).toFixed(1).replace('.', 'p');
+  const fname  = path.join(logsDir, `peel_${ts}_ang${ang}_spd${spd}_tmp${tmp}.csv`);
 
   logStream = fs.createWriteStream(fname, { encoding: 'utf8' });
   logStream.write(LOG_COLUMNS.join(',') + '\n');
@@ -217,7 +218,7 @@ async function serialLoop(portArg) {
         obj.log_info  = {
           active:   logStream !== null,
           filename: logStream ? path.basename(String(logStream.path)) : '',
-          folder:   'logs',
+          folder:   logsDir,
         };
 
         const text = JSON.stringify(obj);
@@ -340,7 +341,11 @@ function stopBridge() {
   if (httpServer) { try { httpServer.close(); } catch (_) { /* ignore */ } }
 }
 
-module.exports = { startBridge, stopBridge };
+function setLogsDir(newDir) {
+  logsDir = newDir;
+}
+
+module.exports = { startBridge, stopBridge, setLogsDir };
 
 // ── Standalone CLI (node bridge.js) ──────────────────────────────────────────
 if (require.main === module) {
