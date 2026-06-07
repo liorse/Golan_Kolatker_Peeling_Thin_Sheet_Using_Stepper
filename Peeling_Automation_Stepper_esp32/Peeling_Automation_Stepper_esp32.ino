@@ -111,14 +111,23 @@
 #define HEATER_PIN  32
 
 // ---- Display geometry -------------------------------------------------------
-#define SCREEN_W   240
+#define SCREEN_W   320
 #define SCREEN_H   240
-#define X_OFF      ((320 - SCREEN_W) / 2)   // centers 240-px content in 320-px landscape
+#define X_OFF        0
+#define LEFT_W     200   // stepper UI column width (px)
+#define TCOL_X     201   // temperature bar column start (1 px gap = vertical divider)
+
+// Temperature bar geometry (right column)
+#define TBAR_X     205   // bar left edge
+#define TBAR_W      22   // bar width in px
+#define TBAR_TOP    46   // top of bar = 120 °C
+#define TBAR_BOT   220   // bottom of bar = 0 °C
+#define TBAR_H     (TBAR_BOT - TBAR_TOP)   // 174 px
 
 #define BTN_W       52
 #define BTN_H       28
-#define BTN_LEFT_X   (3 + X_OFF)
-#define BTN_RIGHT_X (SCREEN_W - BTN_W - 3 + X_OFF)
+#define BTN_LEFT_X   3
+#define BTN_RIGHT_X (LEFT_W - BTN_W - 3)   // = 145; both button pairs stay in left column
 #define BTN_TOP_Y    3
 #define BTN_BOT_Y   (SCREEN_H - BTN_H - 3)
 
@@ -133,11 +142,11 @@
 #define ANGLE_Y   116   //                    → ends 132
 #define TOEND_Y   136   //                    → ends 152
 #define PEELT_Y   156   //                    → ends 172
-#define BAR_X      (20 + X_OFF)
+#define BAR_X       20
 #define BAR_Y     178   // 12 px bar → ends 190; bottom divider at 207
-#define BAR_W     200
+#define BAR_W     168   // shortened to stay in left column (20 + 168 = 188 < 200)
 #define BAR_H      12
-#define TEMP_Y    193   // textSize 1 (8 px) → ends 201; fits gap between bar and divider at 207
+// TEMP_Y removed — temperature is shown in the right-column bar
 
 // ---- Physical constants -----------------------------------------------------
 // 1 full motor revolution = 1.5 mm linear travel.
@@ -160,10 +169,23 @@ unsigned long lastDrdyHighMs = 0;   // millis() when DRDY was last seen HIGH; in
 // ---- Heater state -----------------------------------------------------------
 uint8_t heaterDuty = 0;            // current LEDC duty (0–255); updated by 'h' serial command
 
+// ---- Temperature controller state ------------------------------------------
+float tempSetpoint       = 50.0f;  // target °C (0–120)
+bool  tempControlActive  = false;  // PID loop enabled (control loop deferred to next step)
+float kp                 = 60.0f;  // proportional gain
+float ki                 =  0.15f; // integral gain
+float kd                 = 900.0f; // derivative gain
+
+enum TempField { TFIELD_BACK, TFIELD_SETPOINT, TFIELD_KP, TFIELD_KI, TFIELD_KD, TFIELD_STARTSTOP };
+
+bool      inTempSubMenu    = false;
+TempField tempField        = TFIELD_BACK;
+int       prevTempFieldIdx = -1;   // -1 = first draw needed in temp sub-menu
+
 // ---- Persistent storage -----------------------------------------------------
-#define EEPROM_MAGIC  0x50454C34u   // "PEL4" — microstep field removed
+#define EEPROM_MAGIC  0x50454C35u   // "PEL5" — temperature controller fields added
 #define EEPROM_ADDR   0
-#define EEPROM_SIZE   64
+#define EEPROM_SIZE   128
 
 struct SavedSettings {
   uint32_t magic;
@@ -171,6 +193,11 @@ struct SavedSettings {
   float    speed_um_s;
   float    start_pos_um;
   int32_t  dist_xa_steps;
+  float    tempSetpoint;
+  float    kp;
+  float    ki;
+  float    kd;
+  bool     tempControlActive;
 };
 
 // ---- Application state ------------------------------------------------------
@@ -186,7 +213,7 @@ enum AppState {
 };
 AppState appState = IDLE;
 
-enum SettingsField { FIELD_SPEED, FIELD_ANGLE, FIELD_START, FIELD_CAL };
+enum SettingsField { FIELD_SPEED, FIELD_ANGLE, FIELD_START, FIELD_CAL, FIELD_TEMP };
 SettingsField settingsField = FIELD_SPEED;
 
 // ---- User-configurable values -----------------------------------------------
@@ -295,20 +322,30 @@ void loadPrefs() {
   SavedSettings s;
   EEPROM.get(EEPROM_ADDR, s);
   if (s.magic == EEPROM_MAGIC) {
-    angle_deg     = s.angle_deg;
-    speed_um_s    = s.speed_um_s;
-    start_pos_um  = s.start_pos_um;
-    dist_xa_steps = s.dist_xa_steps;
+    angle_deg          = s.angle_deg;
+    speed_um_s         = s.speed_um_s;
+    start_pos_um       = s.start_pos_um;
+    dist_xa_steps      = s.dist_xa_steps;
+    tempSetpoint       = s.tempSetpoint;
+    kp                 = s.kp;
+    ki                 = s.ki;
+    kd                 = s.kd;
+    tempControlActive  = s.tempControlActive;
   }
 }
 
 void saveAll() {
   SavedSettings s;
-  s.magic         = EEPROM_MAGIC;
-  s.angle_deg     = angle_deg;
-  s.speed_um_s    = speed_um_s;
-  s.start_pos_um  = start_pos_um;
-  s.dist_xa_steps = dist_xa_steps;
+  s.magic             = EEPROM_MAGIC;
+  s.angle_deg         = angle_deg;
+  s.speed_um_s        = speed_um_s;
+  s.start_pos_um      = start_pos_um;
+  s.dist_xa_steps     = dist_xa_steps;
+  s.tempSetpoint      = tempSetpoint;
+  s.kp                = kp;
+  s.ki                = ki;
+  s.kd                = kd;
+  s.tempControlActive = tempControlActive;
   EEPROM.put(EEPROM_ADDR, s);
   EEPROM.commit();
 }
@@ -327,24 +364,27 @@ static const char HTML_PAGE[] PROGMEM = R"rawhtml(<!DOCTYPE html>
 <title>Peeling Controller</title>
 <style>
 body{margin:0;background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;}
-canvas{image-rendering:pixelated;max-width:min(100vw,100vh);max-height:min(100vw,100vh);width:480px;height:480px;}
+canvas{image-rendering:pixelated;width:640px;aspect-ratio:4/3;max-width:100vw;}
 #ws-status{color:#888;font-size:12px;margin-top:6px;font-family:sans-serif;}
 #serial-badge{display:none;color:#00fc00;font-weight:bold;margin-left:8px;font-size:13px;}
 #log-status{font-family:monospace;font-size:11px;margin-top:4px;text-align:center;line-height:1.6;min-height:1.6em;}
 </style>
 </head>
 <body>
-<canvas id="c" width="240" height="240"></canvas>
+<canvas id="c" width="320" height="240"></canvas>
 <div id="ws-status">connecting... <span id="serial-badge">&#128268; SERIAL</span></div>
 <div id="log-status"></div>
 <script>
-const SW=240,SH=240;
-const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=SW-BTN_W-3,BTN_TOP_Y=3,BTN_BOT_Y=SH-BTN_H-3;
+const SW=320,SH=240;
+const LEFT_W=200;
+const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=LEFT_W-BTN_W-3,BTN_TOP_Y=3,BTN_BOT_Y=SH-BTN_H-3;
 const DIV_TOP_Y=33,DIV_BOT_Y=207;
 const STATE_Y=36,POS_Y=56,SETSPD_Y=76,RUNSPD_Y=96,ANGLE_Y=116,TOEND_Y=136,PEELT_Y=156;
-const BAR_X=20,BAR_Y=178,BAR_W=200,BAR_H=12;
-const TEMP_Y=193;
-const fieldY=[68,92,116,140];
+const BAR_X=20,BAR_Y=178,BAR_W=168,BAR_H=12;
+const fieldY=[60,82,104,126,148];
+const tempFieldY=[60,82,104,126,148,170];
+const TCOL_X=200,TCOL_W=120;
+const TBAR_X=205,TBAR_W=22,TBAR_TOP=46,TBAR_BOT=220,TBAR_H=TBAR_BOT-TBAR_TOP;
 const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484'};
 const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
 
@@ -383,8 +423,9 @@ function drawButtonBox(x,y,label,pressed,sz){
 
 function drawDividers(){
   ctx.strokeStyle=C.CY;ctx.lineWidth=1;
-  ctx.beginPath();ctx.moveTo(0,DIV_TOP_Y);ctx.lineTo(SW,DIV_TOP_Y);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(0,DIV_BOT_Y);ctx.lineTo(SW,DIV_BOT_Y);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,DIV_TOP_Y);ctx.lineTo(LEFT_W,DIV_TOP_Y);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,DIV_BOT_Y);ctx.lineTo(LEFT_W,DIV_BOT_Y);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(TCOL_X-1,0);ctx.lineTo(TCOL_X-1,SH);ctx.stroke();
 }
 
 function rssiToBars(rssi){
@@ -396,7 +437,7 @@ function rssiToBars(rssi){
 }
 
 function drawWifiIcon(rssi,clients){
-  const cx=120,cy=26,bars=rssiToBars(rssi);
+  const cx=120,cy=26,bars=rssiToBars(rssi);  // cx=120 is in left column
   ctx.fillStyle=C.BK;ctx.fillRect(cx-14,cy-14,28,18);
   ctx.fillStyle=C.BK;ctx.fillRect(134,18,22,10);
 
@@ -430,11 +471,20 @@ function drawWifiIcon(rssi,clients){
 function drawButtons(d){
   const btn=d.btn||[false,false,false,false];
   if(d.state==='SETTINGS'){
-    drawButtonBox(BTN_LEFT_X, BTN_TOP_Y,'UP',  btn[0],2);
-    drawButtonBox(BTN_LEFT_X, BTN_BOT_Y,'DOWN',btn[1],2);
-    drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,d.settings_field===3?'CAL':'+',btn[2],2);
-    drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,'-',btn[3],2);
-  } else {
+    drawButtonBox(BTN_LEFT_X,BTN_TOP_Y,'UP',btn[0],2);
+    drawButtonBox(BTN_LEFT_X,BTN_BOT_Y,'DOWN',btn[1],2);
+    let xLbl='+',yLbl='-';
+    if(d.in_temp_sub){
+      if(d.temp_field===0) xLbl='BACK';
+      else if(d.temp_field===5) xLbl='ON';
+      yLbl=(d.temp_field===5)?'OFF':'-';
+    }else{
+      if(d.settings_field===3) xLbl='CAL';
+      else if(d.settings_field===4) xLbl='OPEN';
+    }
+    drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,xLbl,btn[2],2);
+    drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,yLbl,btn[3],2);
+  }else{
     let aLbl,bLbl;
     if(d.state==='IDLE'){aLbl=d.dist_xa_steps>0?'GO':'!CAL';bLbl=d.position===0?'SET':'HOME';}
     else{aLbl='STOP';bLbl='----';}
@@ -494,88 +544,179 @@ function drawRunScreen(d){
   ctx.fillStyle=C.CY;ctx.fillRect(BAR_X+1,BAR_Y+1,filled,BAR_H-2);
   ctx.fillStyle=C.BK;ctx.fillRect(BAR_X+1+filled,BAR_Y+1,BAR_W-2-filled,BAR_H-2);
 
-  if(d.temp_c===null||d.temp_c===undefined){
-    drawText('T:  -- FAULT --     ',6,TEMP_Y,1,C.RE,C.BK);
-  } else {
-    drawText(('T: '+d.temp_c.toFixed(1)+' C').padEnd(20),6,TEMP_Y,1,C.GR,C.BK);
-  }
 }
 
 function drawSettingsField(d,idx,active){
-  ctx.fillStyle=C.BK;ctx.fillRect(0,fieldY[idx],SW,20);
+  ctx.fillStyle=C.BK;ctx.fillRect(0,fieldY[idx],LEFT_W,20);
   let vbuf;
   if(active){
     drawText('>',6,fieldY[idx],2,C.YE,C.BK);
     switch(idx){
-      case 1:vbuf='ANG: '+pad(d.angle,2)+' deg   ';break;
-      case 0:vbuf='SPD:'+d.speed_set.toFixed(1)+'um/s  ';break;
-      case 2:vbuf='ST: '+d.start_pos_um.toFixed(0)+'um    ';break;
-      case 3:vbuf='CAL: press CAL';break;
+      case 1:vbuf='ANG: '+pad(d.angle,2)+' deg  ';break;
+      case 0:vbuf='SPD:'+d.speed_set.toFixed(1)+'um/s ';break;
+      case 2:vbuf='ST: '+d.start_pos_um.toFixed(0)+'um   ';break;
+      case 3:vbuf='CAL:press CAL';break;
+      case 4:vbuf='TEMP SETTINGS';break;
     }
     drawText(vbuf,22,fieldY[idx],2,C.YE,C.BK);
-  } else {
+  }else{
     switch(idx){
       case 1:vbuf='ANG: '+d.angle+' deg';break;
       case 0:vbuf='SPD: '+d.speed_set.toFixed(1)+' um/s';break;
       case 2:vbuf='START: '+d.start_pos_um.toFixed(0)+' um';break;
       case 3:vbuf='CAL (press CAL)';break;
+      case 4:vbuf='TEMP (press OPEN)';break;
     }
     drawText(vbuf,16,fieldY[idx],1,C.GY,C.BK);
   }
 }
 
-function drawSettingsScreen(d){
-  drawText('SETTINGS',Math.floor((SW-8*12)/2),STATE_Y,2,C.WH,C.BK);
-  ctx.fillStyle=C.BK;ctx.fillRect(0,54,SW,12);
-  for(let i=0;i<4;i++) drawSettingsField(d,i,i===d.settings_field);
-  ctx.fillStyle=C.BK;ctx.fillRect(0,178,SW,12);
-  if(d.dist_xa_steps>0){
-    drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,178,1,C.GR,C.BK);
-  } else {
-    drawText('NOT CALIBRATED      ',6,178,1,C.RE,C.BK);
+function drawTempSubField(d,idx,active){
+  ctx.fillStyle=C.BK;ctx.fillRect(0,tempFieldY[idx],LEFT_W,20);
+  const sp=d.temp_setpoint!==undefined?d.temp_setpoint:50;
+  const kp_=d.kp!==undefined?d.kp:60;
+  const ki_=d.ki!==undefined?d.ki:0.15;
+  const kd_=d.kd!==undefined?d.kd:900;
+  const ctrlOn=!!d.temp_ctrl_active;
+  let vbuf;
+  if(active){
+    drawText('>',6,tempFieldY[idx],2,C.YE,C.BK);
+    switch(idx){
+      case 0:vbuf='< BACK       ';break;
+      case 1:vbuf='SP: '+pad(sp.toFixed(1),5)+' C  ';break;
+      case 2:vbuf='Kp: '+pad(kp_.toFixed(1),5)+'   ';break;
+      case 3:vbuf='Ki: '+pad(ki_.toFixed(2),5)+'   ';break;
+      case 4:vbuf='Kd: '+pad(kd_.toFixed(0),5)+'   ';break;
+      case 5:vbuf=ctrlOn?'CTRL: ON     ':'CTRL: OFF    ';break;
+    }
+    drawText(vbuf,22,tempFieldY[idx],2,C.YE,C.BK);
+  }else{
+    switch(idx){
+      case 0:vbuf='< BACK';break;
+      case 1:vbuf='SP: '+sp.toFixed(1)+' C';break;
+      case 2:vbuf='Kp: '+kp_.toFixed(1);break;
+      case 3:vbuf='Ki: '+ki_.toFixed(2);break;
+      case 4:vbuf='Kd: '+kd_.toFixed(0);break;
+      case 5:vbuf=ctrlOn?'CTRL: ON':'CTRL: OFF';break;
+    }
+    drawText(vbuf,16,tempFieldY[idx],1,C.GY,C.BK);
   }
-  ctx.fillStyle=C.BK;ctx.fillRect(0,190,SW,12);
-  drawText(padEnd(d.ip||'',28),6,190,1,C.CY,C.BK);
+}
+
+function drawSettingsScreen(d){
+  if(d.in_temp_sub){
+    drawText('TEMP SET',Math.floor((LEFT_W-8*12)/2),STATE_Y,2,C.WH,C.BK);
+    ctx.fillStyle=C.BK;ctx.fillRect(0,54,LEFT_W,6);
+    for(let i=0;i<6;i++) drawTempSubField(d,i,i===d.temp_field);
+  }else{
+    drawText('SETTINGS',Math.floor((LEFT_W-8*12)/2),STATE_Y,2,C.WH,C.BK);
+    ctx.fillStyle=C.BK;ctx.fillRect(0,54,LEFT_W,6);
+    for(let i=0;i<5;i++) drawSettingsField(d,i,i===d.settings_field);
+    ctx.fillStyle=C.BK;ctx.fillRect(0,170,LEFT_W,10);
+    if(d.dist_xa_steps>0){
+      drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,172,1,C.GR,C.BK);
+    }else{
+      drawText('NOT CALIBRATED      ',6,172,1,C.RE,C.BK);
+    }
+    ctx.fillStyle=C.BK;ctx.fillRect(0,183,LEFT_W,10);
+    drawText(padEnd(d.ip||'',28),6,185,1,C.CY,C.BK);
+  }
+}
+
+function drawTempColumn(d){
+  const tempC=d.temp_c;
+  const setpoint=d.temp_setpoint!==undefined?d.temp_setpoint:50;
+  const ctrlActive=!!d.temp_ctrl_active;
+  const heaterPct=Math.round((d.heater_duty||0)/255*100);
+  const fault=(tempC===null||tempC===undefined);
+  const stable=!fault&&ctrlActive&&Math.abs(tempC-setpoint)<=2.0;
+
+  ctx.fillStyle=C.BK;ctx.fillRect(TCOL_X,0,TCOL_W,SH);
+
+  let statusText,statusColor;
+  if(!ctrlActive){
+    statusText='CTRL:OFF';statusColor=C.GY;
+  }else if(stable){
+    statusText='STABLE  ';statusColor=C.GR;
+  }else{
+    const blink=Math.floor(Date.now()/500)%2;
+    statusText='CTRL: ON';statusColor=blink?C.YE:C.BK;
+  }
+  drawText(statusText,TCOL_X+2,4,1,statusColor,C.BK);
+
+  const pwrStr='PWR:'+String(heaterPct).padStart(3)+'%';
+  drawText(pwrStr,TCOL_X+2,18,1,C.CY,C.BK);
+
+  ctx.strokeStyle=C.CY;ctx.lineWidth=1;ctx.strokeRect(TBAR_X,TBAR_TOP,TBAR_W,TBAR_H);
+
+  if(fault){
+    ctx.fillStyle=C.RE;ctx.fillRect(TBAR_X+1,TBAR_TOP+1,TBAR_W-2,TBAR_H-2);
+    const ftx=TBAR_X+Math.floor((TBAR_W-3*6)/2);
+    drawText('FLT',ftx,TBAR_TOP+Math.floor(TBAR_H/2)-4,1,C.WH,C.RE);
+    ctx.fillStyle=C.BK;ctx.fillRect(TBAR_X+TBAR_W+3,TBAR_TOP,TCOL_X+TCOL_W-TBAR_X-TBAR_W-4,TBAR_H);
+  }else{
+    const clampedT=Math.max(0,Math.min(120,tempC));
+    const fillH=Math.max(0,Math.min(TBAR_H-2,Math.floor((TBAR_H-2)*clampedT/120)));
+    const fillY=TBAR_BOT-1-fillH;
+    const barColor=stable?C.GR:C.RE;
+    ctx.fillStyle=C.BK;ctx.fillRect(TBAR_X+1,TBAR_TOP+1,TBAR_W-2,TBAR_H-2-fillH);
+    if(fillH>0){ctx.fillStyle=barColor;ctx.fillRect(TBAR_X+1,fillY,TBAR_W-2,fillH);}
+
+    const spFrac=Math.max(0,Math.min(1,setpoint/120));
+    const spY=TBAR_BOT-1-Math.floor((TBAR_H-2)*spFrac);
+    ctx.strokeStyle=C.WH;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(TBAR_X-4,spY);ctx.lineTo(TBAR_X+TBAR_W+4,spY);ctx.stroke();
+
+    const labelX=TBAR_X+TBAR_W+3;
+    const labelY=Math.max(TBAR_TOP,Math.min(TBAR_BOT-8,fillY-1));
+    ctx.fillStyle=C.BK;ctx.fillRect(labelX,TBAR_TOP,TCOL_X+TCOL_W-labelX-1,TBAR_H);
+    drawText(tempC.toFixed(1),labelX,labelY,1,C.WH,C.BK);
+  }
+
+  ctx.strokeStyle=C.CY;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(TCOL_X-1,0);ctx.lineTo(TCOL_X-1,SH);ctx.stroke();
 }
 
 let lastInSettings=null;
+let lastInTempSub=null;
 const serialBadge=document.getElementById('serial-badge');
 const logStatusEl=document.getElementById('log-status');
 
 function render(d){
-  // Reveal the SERIAL badge once we receive a transport:serial frame (stays visible)
   if(d.transport==='serial') serialBadge.style.display='inline';
 
-  // Serial cable disconnected — show reconnecting notice without touching the canvas
   if(d.serial_lost){
     statusEl.firstChild.textContent='reconnecting... ';
     logStatusEl.innerHTML='';
     return;
   }
 
-  // Log status indicator — only shown when Python bridge is active and logging
   if(d.log_info&&d.log_info.active){
     logStatusEl.innerHTML=
       '&#x1F4DD;&nbsp;<span style="color:#f8fc00">'+d.log_info.filename+'</span><br>'
-      +'<span style="color:#888">→&nbsp;'+d.log_info.folder+'</span>';
-  } else {
+      +'<span style="color:#888">&#8594;&nbsp;'+d.log_info.folder+'</span>';
+  }else{
     logStatusEl.innerHTML='';
   }
 
   statusEl.firstChild.textContent='connected ';
   const inSettings=d.state==='SETTINGS';
-  if(inSettings!==lastInSettings){
-    ctx.fillStyle=C.BK;ctx.fillRect(0,DIV_TOP_Y+1,SW,DIV_BOT_Y-DIV_TOP_Y-1);
+  const inTempSub=!!d.in_temp_sub;
+  if(inSettings!==lastInSettings||inTempSub!==lastInTempSub){
+    ctx.fillStyle=C.BK;ctx.fillRect(0,DIV_TOP_Y+1,LEFT_W,DIV_BOT_Y-DIV_TOP_Y-1);
     lastInSettings=inSettings;
+    lastInTempSub=inTempSub;
   }
   if(inSettings) drawSettingsScreen(d); else drawRunScreen(d);
   drawButtons(d);
+  drawTempColumn(d);
   drawWifiIcon(d.rssi||0,d.clients||0);
   drawDividers();
 }
 
 ctx.fillStyle=C.BK;ctx.fillRect(0,0,SW,SH);
 drawDividers();
+// Draw initial temp column so bar outline is visible before first WebSocket frame
 
 // WebSocket URL: use port 8081 when served from Python bridge on localhost;
 // use the page host (port 80) when served directly from the ESP32.
@@ -670,7 +811,59 @@ void doIncrement(int dir, bool fast) {
       break;
     }
     case FIELD_CAL:
+    case FIELD_TEMP:
       break;
+  }
+  settingsDirty = true;
+}
+
+void doTempIncrement(int dir, bool fast) {
+  switch (tempField) {
+    case TFIELD_SETPOINT:
+      tempSetpoint = constrain(tempSetpoint + (float)dir, 0.0f, 120.0f);
+      break;
+    case TFIELD_KP:
+      kp = constrain(kp + (float)dir * (fast ? 10.0f : 1.0f), 0.0f, 200.0f);
+      break;
+    case TFIELD_KI:
+      ki = constrain(ki + (float)dir * (fast ? 0.1f : 0.01f), 0.0f, 2.0f);
+      ki = roundf(ki * 100.0f) / 100.0f;  // clamp float drift to 2 decimal places
+      break;
+    case TFIELD_KD:
+      kd = constrain(kd + (float)dir * (fast ? 100.0f : 10.0f), 0.0f, 2000.0f);
+      break;
+    default: break;
+  }
+  settingsDirty = true;
+}
+
+void clearContent();  // forward declaration
+
+void enterTempSubMenu() {
+  inTempSubMenu    = true;
+  tempField        = TFIELD_BACK;
+  prevTempFieldIdx = -1;
+  clearContent();
+  settingsDirty    = true;
+}
+
+void exitTempSubMenu() {
+  inTempSubMenu        = false;
+  prevSettingsFieldIdx = -1;  // force full main-settings redraw
+  clearContent();
+  settingsDirty        = true;
+}
+
+void cycleTempField() {
+  switch (tempField) {
+    case TFIELD_BACK:      tempField = TFIELD_SETPOINT;  break;
+    case TFIELD_SETPOINT:  tempField = TFIELD_KP;        break;
+    case TFIELD_KP:        tempField = TFIELD_KI;        break;
+    case TFIELD_KI:        tempField = TFIELD_KD;        break;
+    case TFIELD_KD:        tempField = TFIELD_STARTSTOP; break;
+    case TFIELD_STARTSTOP:
+      exitTempSubMenu();
+      return;
   }
   settingsDirty = true;
 }
@@ -734,7 +927,8 @@ void cycleSettingsField() {
     case FIELD_SPEED: settingsField = FIELD_ANGLE; break;
     case FIELD_ANGLE: settingsField = FIELD_START; break;
     case FIELD_START: settingsField = FIELD_CAL;   break;
-    case FIELD_CAL:
+    case FIELD_CAL:   settingsField = FIELD_TEMP;  break;
+    case FIELD_TEMP:
       saveSettings();
       appState = IDLE;
       return;
@@ -768,23 +962,56 @@ void onButtonPress(int idx) {
       break;
 
     case SETTINGS:
-      if (idx == IDX_A) {          // A = navigate up
-        switch (settingsField) {
-          case FIELD_ANGLE: settingsField = FIELD_SPEED; break;
-          case FIELD_START: settingsField = FIELD_ANGLE; break;
-          case FIELD_CAL:   settingsField = FIELD_START; break;
-          default: break;          // FIELD_SPEED: already at top, no-op
+      if (inTempSubMenu) {
+        if (idx == IDX_A) {
+          switch (tempField) {
+            case TFIELD_SETPOINT:  tempField = TFIELD_BACK;      break;
+            case TFIELD_KP:        tempField = TFIELD_SETPOINT;  break;
+            case TFIELD_KI:        tempField = TFIELD_KP;        break;
+            case TFIELD_KD:        tempField = TFIELD_KI;        break;
+            case TFIELD_STARTSTOP: tempField = TFIELD_KD;        break;
+            default: break;  // TFIELD_BACK: already at top, no-op
+          }
+          settingsDirty = true;
+        } else if (idx == IDX_X) {
+          if (tempField == TFIELD_BACK) {
+            exitTempSubMenu();
+          } else if (tempField == TFIELD_STARTSTOP) {
+            tempControlActive = true;
+            settingsDirty = true;
+          } else {
+            doTempIncrement(+1, false);
+          }
+        } else if (idx == IDX_Y) {
+          if (tempField == TFIELD_STARTSTOP) {
+            tempControlActive = false;
+            settingsDirty = true;
+          } else if (tempField != TFIELD_BACK) {
+            doTempIncrement(-1, false);
+          }
         }
-        settingsDirty = true;
-      } else if (idx == IDX_X) {   // X = increment or CAL trigger
-        if (settingsField == FIELD_CAL) {
-          startCal();
-        } else {
-          doIncrement(+1, false);
-        }
-      } else if (idx == IDX_Y) {   // Y = decrement (no-op on CAL field)
-        if (settingsField != FIELD_CAL) {
-          doIncrement(-1, false);
+      } else {
+        if (idx == IDX_A) {          // A = navigate up
+          switch (settingsField) {
+            case FIELD_ANGLE: settingsField = FIELD_SPEED; break;
+            case FIELD_START: settingsField = FIELD_ANGLE; break;
+            case FIELD_CAL:   settingsField = FIELD_START; break;
+            case FIELD_TEMP:  settingsField = FIELD_CAL;   break;
+            default: break;          // FIELD_SPEED: already at top, no-op
+          }
+          settingsDirty = true;
+        } else if (idx == IDX_X) {   // X = increment, CAL trigger, or enter TEMP sub-menu
+          if (settingsField == FIELD_CAL) {
+            startCal();
+          } else if (settingsField == FIELD_TEMP) {
+            enterTempSubMenu();
+          } else {
+            doIncrement(+1, false);
+          }
+        } else if (idx == IDX_Y) {   // Y = decrement (no-op on CAL/TEMP fields)
+          if (settingsField != FIELD_CAL && settingsField != FIELD_TEMP) {
+            doIncrement(-1, false);
+          }
         }
       }
       // B: handled in onButtonRelease (navigate down / exit+save)
@@ -807,6 +1034,8 @@ void onButtonRelease(int idx) {
   if (appState == SETTINGS && idx == IDX_B && !btnLongFired[IDX_B]) {
     if (justEnteredSettings) {
       justEnteredSettings = false;  // swallow the release that opened settings
+    } else if (inTempSubMenu) {
+      cycleTempField();
     } else {
       cycleSettingsField();
     }
@@ -814,7 +1043,13 @@ void onButtonRelease(int idx) {
 }
 
 void onButtonLong(int idx) {
-  if (appState == SETTINGS && settingsField != FIELD_CAL) {
+  if (appState != SETTINGS) return;
+  if (inTempSubMenu) {
+    if (tempField == TFIELD_BACK || tempField == TFIELD_STARTSTOP) return;
+    if (idx == IDX_X) doTempIncrement(+1, false);
+    else if (idx == IDX_Y) doTempIncrement(-1, false);
+  } else {
+    if (settingsField == FIELD_CAL || settingsField == FIELD_TEMP) return;
     if (idx == IDX_X) doIncrement(+1, false);
     else if (idx == IDX_Y) doIncrement(-1, false);
   }
@@ -822,10 +1057,14 @@ void onButtonLong(int idx) {
 
 void onButtonRepeat(int idx) {
   if (appState != SETTINGS) return;
-  if (idx == IDX_X && settingsField != FIELD_CAL) {
-    doIncrement(+1, true);
-  } else if (idx == IDX_Y && settingsField != FIELD_CAL) {
-    doIncrement(-1, true);
+  if (inTempSubMenu) {
+    if (tempField == TFIELD_BACK || tempField == TFIELD_STARTSTOP) return;
+    if (idx == IDX_X) doTempIncrement(+1, true);
+    else if (idx == IDX_Y) doTempIncrement(-1, true);
+  } else {
+    if (settingsField == FIELD_CAL || settingsField == FIELD_TEMP) return;
+    if (idx == IDX_X) doIncrement(+1, true);
+    else if (idx == IDX_Y) doIncrement(-1, true);
   }
 }
 
@@ -853,8 +1092,20 @@ void updateButtons() {
   if (appState == SETTINGS) {
     drawButtonBox(BTN_LEFT_X,  BTN_TOP_Y, "UP",   btnDown[IDX_A]);
     drawButtonBox(BTN_LEFT_X,  BTN_BOT_Y, "DOWN", btnDown[IDX_B]);
-    drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, settingsField == FIELD_CAL ? "CAL" : "+", btnDown[IDX_X]);
-    drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, "-",    btnDown[IDX_Y]);
+    const char *xLbl, *yLbl;
+    if (inTempSubMenu) {
+      if      (tempField == TFIELD_BACK)      xLbl = "BACK";
+      else if (tempField == TFIELD_STARTSTOP) xLbl = "ON";
+      else                                    xLbl = "+";
+      yLbl = (tempField == TFIELD_STARTSTOP) ? "OFF" : "-";
+    } else {
+      if      (settingsField == FIELD_CAL)  xLbl = "CAL";
+      else if (settingsField == FIELD_TEMP) xLbl = "OPEN";
+      else                                  xLbl = "+";
+      yLbl = "-";
+    }
+    drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, xLbl, btnDown[IDX_X]);
+    drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, yLbl, btnDown[IDX_Y]);
   } else {
     if (appState == IDLE) {
       strcpy(aLbl, dist_xa_steps > 0 ? "GO" : "!CAL");
@@ -873,7 +1124,7 @@ void updateButtons() {
 }
 
 void clearContent() {
-  tft.fillRect(X_OFF, DIV_TOP_Y + 1, SCREEN_W, DIV_BOT_Y - DIV_TOP_Y - 1, ST77XX_BLACK);
+  tft.fillRect(0, DIV_TOP_Y + 1, LEFT_W, DIV_BOT_Y - DIV_TOP_Y - 1, ST77XX_BLACK);
 }
 
 
@@ -1011,17 +1262,6 @@ void updateRunContent() {
   tft.fillRect(BAR_X + 1,          BAR_Y + 1, filled,              BAR_H - 2, ST77XX_CYAN);
   tft.fillRect(BAR_X + 1 + filled, BAR_Y + 1, BAR_W - 2 - filled, BAR_H - 2, ST77XX_BLACK);
 
-  // ---- Temperature (textSize 1 fits in 8 px gap between bar and divider) ----
-  tft.setTextSize(1);
-  tft.setCursor(6 + X_OFF, TEMP_Y);
-  if (isnan(lastTempC)) {
-    tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
-    tft.print("T: -- FAULT --      ");
-  } else {
-    tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-    snprintf(buf, sizeof(buf), "T: %6.1f C         ", lastTempC);
-    tft.print(buf);
-  }
 }
 
 
@@ -1029,79 +1269,215 @@ void updateRunContent() {
 // Settings screen
 // =============================================================================
 void drawSettingsField(int idx, bool active) {
-  // 4 fields spaced 24 px apart; fieldY[3]+20=158 leaves room for cal status at y=178.
-  const int fieldY[4] = { 68, 92, 116, 140 };
-  tft.fillRect(X_OFF, fieldY[idx], SCREEN_W, 20, ST77XX_BLACK);
+  // 5 fields, 22 px apart; last field ends at 148+20=168, cal status at 172.
+  const int fieldY[5] = { 60, 82, 104, 126, 148 };
+  tft.fillRect(0, fieldY[idx], LEFT_W, 20, ST77XX_BLACK);
   char vbuf[24];
   if (active) {
     tft.setTextSize(2);
     tft.setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
-    tft.setCursor(6 + X_OFF, fieldY[idx]);
+    tft.setCursor(6, fieldY[idx]);
     tft.print(">");
-    tft.setCursor(22 + X_OFF, fieldY[idx]);
+    tft.setCursor(22, fieldY[idx]);
     switch (idx) {
-      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg   ", angle_deg);    break;
-      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s  ", speed_um_s);   break;
-      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "ST: %.0fum    ", start_pos_um);  break;
-      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL: press CAL");                break;
+      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg  ", angle_deg);   break;
+      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s ", speed_um_s);  break;
+      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "ST: %.0fum   ", start_pos_um); break;
+      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL:press CAL");               break;
+      case FIELD_TEMP:  snprintf(vbuf, sizeof(vbuf), "TEMP SETTINGS");               break;
     }
     tft.print(vbuf);
   } else {
     tft.setTextSize(1);
-    tft.setTextColor(0x8410 /* mid-gray */, ST77XX_BLACK);
-    tft.setCursor(16 + X_OFF, fieldY[idx]);
+    tft.setTextColor(0x8410, ST77XX_BLACK);
+    tft.setCursor(16, fieldY[idx]);
     switch (idx) {
-      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);        break;
-      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);    break;
-      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um);  break;
-      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");               break;
+      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);       break;
+      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);   break;
+      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um); break;
+      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");              break;
+      case FIELD_TEMP:  snprintf(vbuf, sizeof(vbuf), "TEMP (press OPEN)");            break;
+    }
+    tft.print(vbuf);
+  }
+}
+
+void drawTempSubField(int idx, bool active) {
+  const int fieldY[6] = { 60, 82, 104, 126, 148, 170 };
+  tft.fillRect(0, fieldY[idx], LEFT_W, 20, ST77XX_BLACK);
+  char vbuf[24];
+  if (active) {
+    tft.setTextSize(2);
+    tft.setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+    tft.setCursor(6, fieldY[idx]);
+    tft.print(">");
+    tft.setCursor(22, fieldY[idx]);
+    switch (idx) {
+      case TFIELD_BACK:      snprintf(vbuf, sizeof(vbuf), "< BACK       ");                              break;
+      case TFIELD_SETPOINT:  snprintf(vbuf, sizeof(vbuf), "SP: %5.1f C  ", tempSetpoint);               break;
+      case TFIELD_KP:        snprintf(vbuf, sizeof(vbuf), "Kp: %5.1f    ", kp);                         break;
+      case TFIELD_KI:        snprintf(vbuf, sizeof(vbuf), "Ki: %5.2f    ", ki);                          break;
+      case TFIELD_KD:        snprintf(vbuf, sizeof(vbuf), "Kd: %5.0f    ", kd);                         break;
+      case TFIELD_STARTSTOP: snprintf(vbuf, sizeof(vbuf), tempControlActive ? "CTRL: ON     " : "CTRL: OFF    "); break;
+    }
+    tft.print(vbuf);
+  } else {
+    tft.setTextSize(1);
+    tft.setTextColor(0x8410, ST77XX_BLACK);
+    tft.setCursor(16, fieldY[idx]);
+    switch (idx) {
+      case TFIELD_BACK:      snprintf(vbuf, sizeof(vbuf), "< BACK");                                    break;
+      case TFIELD_SETPOINT:  snprintf(vbuf, sizeof(vbuf), "SP: %.1f C", tempSetpoint);                  break;
+      case TFIELD_KP:        snprintf(vbuf, sizeof(vbuf), "Kp: %.1f", kp);                              break;
+      case TFIELD_KI:        snprintf(vbuf, sizeof(vbuf), "Ki: %.2f", ki);                               break;
+      case TFIELD_KD:        snprintf(vbuf, sizeof(vbuf), "Kd: %.0f", kd);                              break;
+      case TFIELD_STARTSTOP: snprintf(vbuf, sizeof(vbuf), tempControlActive ? "CTRL: ON" : "CTRL: OFF"); break;
     }
     tft.print(vbuf);
   }
 }
 
 void drawSettingsHint(int) {
-  tft.fillRect(X_OFF, 54, SCREEN_W, 12, ST77XX_BLACK);  // clear hint area
+  tft.fillRect(0, 54, LEFT_W, 12, ST77XX_BLACK);
+}
+
+
+// =============================================================================
+// Temperature bar column (right column, x = TCOL_X..SCREEN_W-1)
+// Called every heartbeat tick (100 ms) from both run and settings screens.
+// =============================================================================
+void updateTempColumn() {
+  const int labelX = TBAR_X + TBAR_W + 3;   // temperature label starts here
+
+  // ---- Status indicator (y=4, sz=1) ----
+  tft.fillRect(TCOL_X + 1, 3, SCREEN_W - TCOL_X - 2, 14, ST77XX_BLACK);
+  tft.setTextSize(1);
+  if (!tempControlActive) {
+    tft.setTextColor(0x8410, ST77XX_BLACK);
+    tft.setCursor(TCOL_X + 2, 4);
+    tft.print("CTRL:OFF");
+  } else {
+    bool stable = !isnan(lastTempC) && fabsf(lastTempC - tempSetpoint) <= 2.0f;
+    if (stable) {
+      tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+      tft.setCursor(TCOL_X + 2, 4);
+      tft.print("STABLE  ");
+    } else {
+      bool blink = (millis() / 500) % 2;
+      tft.setTextColor(blink ? ST77XX_YELLOW : ST77XX_BLACK, ST77XX_BLACK);
+      tft.setCursor(TCOL_X + 2, 4);
+      tft.print("CTRL: ON");
+    }
+  }
+
+  // ---- Power % (y=18, sz=1) ----
+  {
+    char buf[12];
+    int pct = (int)((float)heaterDuty / 255.0f * 100.0f + 0.5f);
+    snprintf(buf, sizeof(buf), "PWR: %3d%%", pct);
+    tft.setTextSize(1);
+    tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+    tft.setCursor(TCOL_X + 2, 18);
+    tft.print(buf);
+  }
+
+  // ---- Bar outline ----
+  tft.drawRect(TBAR_X, TBAR_TOP, TBAR_W, TBAR_H, ST77XX_CYAN);
+
+  if (isnan(lastTempC)) {
+    // Fault: red fill + "FLT" label
+    tft.fillRect(TBAR_X + 1, TBAR_TOP + 1, TBAR_W - 2, TBAR_H - 2, ST77XX_RED);
+    tft.setTextSize(1);
+    tft.setTextColor(ST77XX_WHITE, ST77XX_RED);
+    tft.setCursor(TBAR_X + 2, TBAR_TOP + TBAR_H / 2 - 4);
+    tft.print("FLT");
+    // Clear label area
+    tft.fillRect(labelX, TBAR_TOP, SCREEN_W - labelX, TBAR_H, ST77XX_BLACK);
+  } else {
+    float clampedT = constrain(lastTempC, 0.0f, 120.0f);
+    int fillH = (int)((float)(TBAR_H - 2) * clampedT / 120.0f);
+    int fillY = TBAR_BOT - 1 - fillH;
+    bool stable = tempControlActive && fabsf(lastTempC - tempSetpoint) <= 2.0f;
+    uint16_t barColor = stable ? ST77XX_GREEN : ST77XX_RED;
+
+    // Unfilled portion
+    if (fillH < TBAR_H - 2)
+      tft.fillRect(TBAR_X + 1, TBAR_TOP + 1, TBAR_W - 2, TBAR_H - 2 - fillH, ST77XX_BLACK);
+    // Filled portion
+    if (fillH > 0)
+      tft.fillRect(TBAR_X + 1, fillY, TBAR_W - 2, fillH, barColor);
+
+    // Temperature label (to the right of bar, floats near fill top)
+    {
+      char buf[8];
+      snprintf(buf, sizeof(buf), "%5.1f", lastTempC);
+      int lY = constrain(fillY - 1, TBAR_TOP, TBAR_BOT - 8);
+      tft.fillRect(labelX, TBAR_TOP, SCREEN_W - labelX - 1, TBAR_H, ST77XX_BLACK);
+      tft.setTextSize(1);
+      tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      tft.setCursor(labelX, lY);
+      tft.print(buf);
+    }
+
+    // Setpoint line (white horizontal, ±4 px beyond bar edges)
+    int spY = TBAR_BOT - 1 - (int)((float)(TBAR_H - 2) * constrain(tempSetpoint, 0.0f, 120.0f) / 120.0f);
+    tft.drawFastHLine(TBAR_X - 4, spY, TBAR_W + 8, ST77XX_WHITE);
+  }
 }
 
 void updateSettingsContent() {
   if (!settingsDirty) return;
   settingsDirty = false;
 
-  int  curIdx    = (int)settingsField;
-  bool firstDraw = (prevSettingsFieldIdx < 0);
-
-  if (firstDraw) {
-    // Full initial draw: title, all fields, cal status
-    tft.setTextSize(2);
-    tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    tft.setCursor(X_OFF + (SCREEN_W - 8 * 12) / 2, STATE_Y);
-    tft.print("SETTINGS");
-    drawSettingsHint(curIdx);
-    for (int i = 0; i < 4; i++) drawSettingsField(i, i == curIdx);
-    char  vbuf[24];
-    float dist_xa_um = stepsToUm(dist_xa_steps);
-    tft.setTextSize(1);
-    tft.setCursor(6 + X_OFF, 178);
-    if (dist_xa_steps > 0) {
-      tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-      snprintf(vbuf, sizeof(vbuf), "X-A: %.1f um    ", dist_xa_um);
+  if (inTempSubMenu) {
+    int  curIdx    = (int)tempField;
+    bool firstDraw = (prevTempFieldIdx < 0);
+    if (firstDraw) {
+      tft.setTextSize(2);
+      tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      tft.setCursor((LEFT_W - 8 * 12) / 2, STATE_Y);
+      tft.print("TEMP SET");
+      drawSettingsHint(0);
+      for (int i = 0; i < 6; i++) drawTempSubField(i, i == curIdx);
+    } else if (prevTempFieldIdx != curIdx) {
+      drawTempSubField(prevTempFieldIdx, false);
+      drawTempSubField(curIdx, true);
+      drawSettingsHint(0);
     } else {
-      tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
-      snprintf(vbuf, sizeof(vbuf), "NOT CALIBRATED      ");
+      drawTempSubField(curIdx, true);
     }
-    tft.print(vbuf);
-  } else if (prevSettingsFieldIdx != curIdx) {
-    // Active field changed: redraw old (now inactive) and new (now active) rows only
-    drawSettingsField(prevSettingsFieldIdx, false);
-    drawSettingsField(curIdx, true);
-    drawSettingsHint(curIdx);
+    prevTempFieldIdx = curIdx;
   } else {
-    // Same field, value changed: redraw active row only
-    drawSettingsField(curIdx, true);
+    int  curIdx    = (int)settingsField;
+    bool firstDraw = (prevSettingsFieldIdx < 0);
+    if (firstDraw) {
+      tft.setTextSize(2);
+      tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      tft.setCursor((LEFT_W - 8 * 12) / 2, STATE_Y);
+      tft.print("SETTINGS");
+      drawSettingsHint(curIdx);
+      for (int i = 0; i < 5; i++) drawSettingsField(i, i == curIdx);
+      char  vbuf[24];
+      float dist_xa_um = stepsToUm(dist_xa_steps);
+      tft.setTextSize(1);
+      tft.setCursor(6, 172);
+      if (dist_xa_steps > 0) {
+        tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+        snprintf(vbuf, sizeof(vbuf), "X-A: %.1f um    ", dist_xa_um);
+      } else {
+        tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
+        snprintf(vbuf, sizeof(vbuf), "NOT CALIBRATED      ");
+      }
+      tft.print(vbuf);
+    } else if (prevSettingsFieldIdx != curIdx) {
+      drawSettingsField(prevSettingsFieldIdx, false);
+      drawSettingsField(curIdx, true);
+      drawSettingsHint(curIdx);
+    } else {
+      drawSettingsField(curIdx, true);
+    }
+    prevSettingsFieldIdx = curIdx;
   }
-
-  prevSettingsFieldIdx = curIdx;
 }
 
 
@@ -1133,7 +1509,7 @@ static void drawTopArc(int16_t cx, int16_t cy, int16_t r, uint16_t color) {
 }
 
 void drawWifiIcon(int bars) {
-  const int16_t cx = 120 + X_OFF, cy = 26;
+  const int16_t cx = 120, cy = 26;
   tft.fillRect(cx - 14, cy - 14, 28, 18, ST77XX_BLACK);  // erase old icon
 
   uint16_t color;
@@ -1162,11 +1538,13 @@ void drawWifiIcon(int bars) {
 // =============================================================================
 void initUI() {
   tft.fillScreen(ST77XX_BLACK);
-  tft.drawFastHLine(X_OFF, DIV_TOP_Y, SCREEN_W, ST77XX_CYAN);
-  tft.drawFastHLine(X_OFF, DIV_BOT_Y, SCREEN_W, ST77XX_CYAN);
+  tft.drawFastHLine(0, DIV_TOP_Y, LEFT_W, ST77XX_CYAN);
+  tft.drawFastHLine(0, DIV_BOT_Y, LEFT_W, ST77XX_CYAN);
+  tft.drawFastVLine(TCOL_X - 1, 0, SCREEN_H, ST77XX_CYAN);  // column divider
   updateButtons();
   drawWifiIcon(0);
   updateRunContent();
+  updateTempColumn();
 }
 
 
@@ -1267,7 +1645,7 @@ static void sendWsJson() {
   if (isnan(lastTempC)) snprintf(tempBuf, sizeof(tempBuf), "null");
   else                  snprintf(tempBuf, sizeof(tempBuf), "%.1f", lastTempC);
 
-  char json[430];
+  char json[620];
   snprintf(json, sizeof(json),
     "{\"state\":\"%s\","
     "\"position\":%d,"
@@ -1283,11 +1661,18 @@ static void sendWsJson() {
     "\"peel_elapsed_ms\":%lu,"
     "\"warning_active\":%s,"
     "\"settings_field\":%d,"
+    "\"in_temp_sub\":%s,"
+    "\"temp_field\":%d,"
     "\"btn\":[%s,%s,%s,%s],"
     "\"rssi\":%d,"
     "\"clients\":%d,"
     "\"temp_c\":%s,"
     "\"heater_duty\":%d,"
+    "\"temp_setpoint\":%.1f,"
+    "\"temp_ctrl_active\":%s,"
+    "\"kp\":%.2f,"
+    "\"ki\":%.3f,"
+    "\"kd\":%.1f,"
     "\"ip\":\"%s\"}",
     stateStr,
     (int)stepper->getCurrentPosition(),
@@ -1303,6 +1688,8 @@ static void sendWsJson() {
     peel_elapsed,
     (millis() < warningUntil) ? "true" : "false",
     (int)settingsField,
+    inTempSubMenu ? "true" : "false",
+    (int)tempField,
     btnDown[IDX_A] ? "true" : "false",
     btnDown[IDX_B] ? "true" : "false",
     btnDown[IDX_X] ? "true" : "false",
@@ -1311,6 +1698,11 @@ static void sendWsJson() {
     (int)ws.count(),
     tempBuf,
     (int)heaterDuty,
+    tempSetpoint,
+    tempControlActive ? "true" : "false",
+    kp,
+    ki,
+    kd,
     wifiIpStr
   );
 
@@ -1566,15 +1958,17 @@ void loop() {
       updateRunContent();
     }
 
-    // Redraw dividers (may be overwritten by fillRect in clearContent)
-    tft.drawFastHLine(X_OFF, DIV_TOP_Y, SCREEN_W, ST77XX_CYAN);
-    tft.drawFastHLine(X_OFF, DIV_BOT_Y, SCREEN_W, ST77XX_CYAN);
+    // Redraw dividers and temperature column (may be overwritten by clearContent)
+    tft.drawFastHLine(0, DIV_TOP_Y, LEFT_W, ST77XX_CYAN);
+    tft.drawFastHLine(0, DIV_BOT_Y, LEFT_W, ST77XX_CYAN);
+    tft.drawFastVLine(TCOL_X - 1, 0, SCREEN_H, ST77XX_CYAN);
+    updateTempColumn();
 
     // IP line in settings screen (redrawn every tick so it updates when WiFi connects)
-    if (inSettingsScreen) {
+    if (inSettingsScreen && !inTempSubMenu) {
       tft.setTextSize(1);
       tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-      tft.setCursor(6 + X_OFF, 190);
+      tft.setCursor(6, 185);
       char ipBuf[30];
       snprintf(ipBuf, sizeof(ipBuf), "%-28s", wifiIpStr);
       tft.print(ipBuf);
@@ -1594,9 +1988,9 @@ void loop() {
       }
       if (strcmp(ipDisp, prevIpDrawn) != 0 || ipStripDirty) {
         ipStripDirty = false;
-        // Clear only the space between the two button boxes
-        const int areaX = BTN_LEFT_X + BTN_W + 1;           // 56
-        const int areaW = BTN_RIGHT_X - areaX - 1;           // 128 px
+        // Clear only the space between the two button boxes (left column)
+        const int areaX = BTN_LEFT_X + BTN_W + 1;            // 56
+        const int areaW = BTN_RIGHT_X - areaX - 1;            // 89 px
         const int ipY   = BTN_BOT_Y + (BTN_H - 16) / 2;     // vertically centred (215)
         tft.fillRect(areaX, BTN_BOT_Y, areaW, BTN_H, ST77XX_BLACK);
         if (ipDisp[0] != '\0') {
@@ -1650,10 +2044,10 @@ void loop() {
       if (currBars != prevRssiBars || clientCount != prevClientCount) {
         drawWifiIcon(currBars);
         // client count to the right of WiFi icon (icon centre cx=120, ends ~x=133)
-        tft.fillRect(134 + X_OFF, 18, 22, 10, ST77XX_BLACK);
+        tft.fillRect(134, 18, 22, 10, ST77XX_BLACK);
         tft.setTextSize(1);
         tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-        tft.setCursor(136 + X_OFF, 20);
+        tft.setCursor(136, 20);
         tft.print(clientCount);
         prevRssiBars   = currBars;
         prevClientCount = clientCount;
@@ -1675,7 +2069,7 @@ void loop() {
       if (isnan(lastTempC)) snprintf(tempBuf, sizeof(tempBuf), "null");
       else                  snprintf(tempBuf, sizeof(tempBuf), "%.1f", lastTempC);
 
-      char json[430];
+      char json[620];
       snprintf(json, sizeof(json),
         "{\"state\":\"%s\","
         "\"position\":%d,"
@@ -1691,11 +2085,18 @@ void loop() {
         "\"peel_elapsed_ms\":%lu,"
         "\"warning_active\":%s,"
         "\"settings_field\":%d,"
+        "\"in_temp_sub\":%s,"
+        "\"temp_field\":%d,"
         "\"btn\":[%s,%s,%s,%s],"
         "\"rssi\":%d,"
         "\"clients\":%d,"
         "\"temp_c\":%s,"
         "\"heater_duty\":%d,"
+        "\"temp_setpoint\":%.1f,"
+        "\"temp_ctrl_active\":%s,"
+        "\"kp\":%.2f,"
+        "\"ki\":%.3f,"
+        "\"kd\":%.1f,"
         "\"ip\":\"%s\"}",
         stateStr,
         (int)stepper->getCurrentPosition(),
@@ -1711,6 +2112,8 @@ void loop() {
         peel_elapsed,
         (millis() < warningUntil) ? "true" : "false",
         (int)settingsField,
+        inTempSubMenu ? "true" : "false",
+        (int)tempField,
         btnDown[IDX_A] ? "true" : "false",
         btnDown[IDX_B] ? "true" : "false",
         btnDown[IDX_X] ? "true" : "false",
@@ -1719,6 +2122,11 @@ void loop() {
         (int)ws.count(),
         tempBuf,
         (int)heaterDuty,
+        tempSetpoint,
+        tempControlActive ? "true" : "false",
+        kp,
+        ki,
+        kd,
         wifiIpStr
       );
 

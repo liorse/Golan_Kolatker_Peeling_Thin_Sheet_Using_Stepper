@@ -6,24 +6,27 @@
 <title>Peeling Controller</title>
 <style>
 body{margin:0;background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;}
-canvas{image-rendering:pixelated;max-width:min(100vw,100vh);max-height:min(100vw,100vh);width:480px;height:480px;}
+canvas{image-rendering:pixelated;width:640px;aspect-ratio:4/3;max-width:100vw;}
 #ws-status{color:#888;font-size:12px;margin-top:6px;font-family:sans-serif;}
 #serial-badge{display:none;color:#00fc00;font-weight:bold;margin-left:8px;font-size:13px;}
 #log-status{font-family:monospace;font-size:11px;margin-top:4px;text-align:center;line-height:1.6;min-height:1.6em;}
 </style>
 </head>
 <body>
-<canvas id="c" width="240" height="240"></canvas>
+<canvas id="c" width="320" height="240"></canvas>
 <div id="ws-status">connecting... <span id="serial-badge">&#128268; SERIAL</span></div>
 <div id="log-status"></div>
 <script>
-const SW=240,SH=240;
-const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=SW-BTN_W-3,BTN_TOP_Y=3,BTN_BOT_Y=SH-BTN_H-3;
+const SW=320,SH=240;
+const LEFT_W=200;
+const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=LEFT_W-BTN_W-3,BTN_TOP_Y=3,BTN_BOT_Y=SH-BTN_H-3;
 const DIV_TOP_Y=33,DIV_BOT_Y=207;
 const STATE_Y=36,POS_Y=56,SETSPD_Y=76,RUNSPD_Y=96,ANGLE_Y=116,TOEND_Y=136,PEELT_Y=156;
-const BAR_X=20,BAR_Y=178,BAR_W=200,BAR_H=12;
-const TEMP_Y=193;
-const fieldY=[68,92,116,140];
+const BAR_X=20,BAR_Y=178,BAR_W=168,BAR_H=12;
+const fieldY=[60,82,104,126,148];
+const tempFieldY=[60,82,104,126,148,170];
+const TCOL_X=200,TCOL_W=120;
+const TBAR_X=205,TBAR_W=22,TBAR_TOP=46,TBAR_BOT=220,TBAR_H=TBAR_BOT-TBAR_TOP;
 const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484'};
 const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
 
@@ -53,7 +56,7 @@ function roundRect(x,y,w,h,r,fill,stroke){
 
 function drawButtonBox(x,y,label,pressed,sz){
   sz=sz||2;
-  const bg=pressed?C.WH:C.BK, fg=pressed?C.BK:C.CY;
+  const bg=pressed?C.WH:C.BK,fg=pressed?C.BK:C.CY;
   roundRect(x,y,BTN_W,BTN_H,4,bg,C.CY);
   const tx=x+Math.floor((BTN_W-label.length*cw(sz))/2);
   const ty=y+Math.floor((BTN_H-ch(sz))/2);
@@ -62,8 +65,9 @@ function drawButtonBox(x,y,label,pressed,sz){
 
 function drawDividers(){
   ctx.strokeStyle=C.CY;ctx.lineWidth=1;
-  ctx.beginPath();ctx.moveTo(0,DIV_TOP_Y);ctx.lineTo(SW,DIV_TOP_Y);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(0,DIV_BOT_Y);ctx.lineTo(SW,DIV_BOT_Y);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,DIV_TOP_Y);ctx.lineTo(LEFT_W,DIV_TOP_Y);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,DIV_BOT_Y);ctx.lineTo(LEFT_W,DIV_BOT_Y);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(TCOL_X-1,0);ctx.lineTo(TCOL_X-1,SH);ctx.stroke();
 }
 
 function rssiToBars(rssi){
@@ -92,9 +96,7 @@ function drawWifiIcon(rssi,clients){
     setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),136,20);
     return;
   }
-  // dot
   ctx.fillStyle=color;ctx.beginPath();ctx.arc(cx,cy,2,0,Math.PI*2);ctx.fill();
-  // arcs: upper semicircle (Math.PI to 0 = left to right over top)
   const radii=[];
   if(bars>=2) radii.push(5);
   if(bars>=3) radii.push(9);
@@ -109,11 +111,20 @@ function drawWifiIcon(rssi,clients){
 function drawButtons(d){
   const btn=d.btn||[false,false,false,false];
   if(d.state==='SETTINGS'){
-    drawButtonBox(BTN_LEFT_X, BTN_TOP_Y,'UP',  btn[0],2);
-    drawButtonBox(BTN_LEFT_X, BTN_BOT_Y,'DOWN',btn[1],2);
-    drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,d.settings_field===3?'CAL':'+',btn[2],2);
-    drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,'-',btn[3],2);
-  } else {
+    drawButtonBox(BTN_LEFT_X,BTN_TOP_Y,'UP',btn[0],2);
+    drawButtonBox(BTN_LEFT_X,BTN_BOT_Y,'DOWN',btn[1],2);
+    let xLbl='+',yLbl='-';
+    if(d.in_temp_sub){
+      if(d.temp_field===0) xLbl='BACK';
+      else if(d.temp_field===5) xLbl='ON';
+      yLbl=(d.temp_field===5)?'OFF':'-';
+    }else{
+      if(d.settings_field===3) xLbl='CAL';
+      else if(d.settings_field===4) xLbl='OPEN';
+    }
+    drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,xLbl,btn[2],2);
+    drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,yLbl,btn[3],2);
+  }else{
     let aLbl,bLbl;
     if(d.state==='IDLE'){aLbl=d.dist_xa_steps>0?'GO':'!CAL';bLbl=d.position===0?'SET':'HOME';}
     else{aLbl='STOP';bLbl='----';}
@@ -135,7 +146,7 @@ function drawRunScreen(d){
 
   if(d.warning_active){
     drawText('!CAL FIRST!        ',6,POS_Y,2,C.RE,C.BK);
-  } else {
+  }else{
     drawText('POS:',6,POS_Y,2,C.CY,C.BK);
     drawText(pad(d.pos_um.toFixed(1),7),6+4*12,POS_Y,2,C.WH,C.BK);
     drawText('um      ',6+11*12,POS_Y,2,C.CY,C.BK);
@@ -147,7 +158,7 @@ function drawRunScreen(d){
   let endStr;
   if(d.state==='PEELING'&&d.speed_set>0&&d.pos_um<d.dist_xa_um){
     endStr='END:'+pad(((d.dist_xa_um-d.pos_um)/d.speed_set).toFixed(1),7)+' s  ';
-  } else {
+  }else{
     endStr='END:     -- s  ';
   }
   drawText(endStr,6,PEELT_Y,2,C.CY,C.BK);
@@ -172,83 +183,172 @@ function drawRunScreen(d){
   }
   ctx.fillStyle=C.CY;ctx.fillRect(BAR_X+1,BAR_Y+1,filled,BAR_H-2);
   ctx.fillStyle=C.BK;ctx.fillRect(BAR_X+1+filled,BAR_Y+1,BAR_W-2-filled,BAR_H-2);
-
-  if(d.temp_c===null||d.temp_c===undefined){
-    drawText('T:  -- FAULT --     ',6,TEMP_Y,1,C.RE,C.BK);
-  } else {
-    drawText(('T: '+d.temp_c.toFixed(1)+' C').padEnd(20),6,TEMP_Y,1,C.GR,C.BK);
-  }
 }
 
 function drawSettingsField(d,idx,active){
-  ctx.fillStyle=C.BK;ctx.fillRect(0,fieldY[idx],SW,20);
+  ctx.fillStyle=C.BK;ctx.fillRect(0,fieldY[idx],LEFT_W,20);
   let vbuf;
   if(active){
     drawText('>',6,fieldY[idx],2,C.YE,C.BK);
     switch(idx){
-      case 1:vbuf='ANG: '+pad(d.angle,2)+' deg   ';break;
-      case 0:vbuf='SPD:'+d.speed_set.toFixed(1)+'um/s  ';break;
-      case 2:vbuf='ST: '+d.start_pos_um.toFixed(0)+'um    ';break;
-      case 3:vbuf='CAL: press CAL';break;
+      case 1:vbuf='ANG: '+pad(d.angle,2)+' deg  ';break;
+      case 0:vbuf='SPD:'+d.speed_set.toFixed(1)+'um/s ';break;
+      case 2:vbuf='ST: '+d.start_pos_um.toFixed(0)+'um   ';break;
+      case 3:vbuf='CAL:press CAL';break;
+      case 4:vbuf='TEMP SETTINGS';break;
     }
     drawText(vbuf,22,fieldY[idx],2,C.YE,C.BK);
-  } else {
+  }else{
     switch(idx){
       case 1:vbuf='ANG: '+d.angle+' deg';break;
       case 0:vbuf='SPD: '+d.speed_set.toFixed(1)+' um/s';break;
       case 2:vbuf='START: '+d.start_pos_um.toFixed(0)+' um';break;
       case 3:vbuf='CAL (press CAL)';break;
+      case 4:vbuf='TEMP (press OPEN)';break;
     }
     drawText(vbuf,16,fieldY[idx],1,C.GY,C.BK);
   }
 }
 
-function drawSettingsScreen(d){
-  drawText('SETTINGS',Math.floor((SW-8*12)/2),STATE_Y,2,C.WH,C.BK);
-  ctx.fillStyle=C.BK;ctx.fillRect(0,54,SW,12);
-  for(let i=0;i<4;i++) drawSettingsField(d,i,i===d.settings_field);
-  ctx.fillStyle=C.BK;ctx.fillRect(0,178,SW,12);
-  if(d.dist_xa_steps>0){
-    drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,178,1,C.GR,C.BK);
-  } else {
-    drawText('NOT CALIBRATED      ',6,178,1,C.RE,C.BK);
+function drawTempSubField(d,idx,active){
+  ctx.fillStyle=C.BK;ctx.fillRect(0,tempFieldY[idx],LEFT_W,20);
+  const sp=d.temp_setpoint!==undefined?d.temp_setpoint:50;
+  const kp_=d.kp!==undefined?d.kp:60;
+  const ki_=d.ki!==undefined?d.ki:0.15;
+  const kd_=d.kd!==undefined?d.kd:900;
+  const ctrlOn=!!d.temp_ctrl_active;
+  let vbuf;
+  if(active){
+    drawText('>',6,tempFieldY[idx],2,C.YE,C.BK);
+    switch(idx){
+      case 0:vbuf='< BACK       ';break;
+      case 1:vbuf='SP: '+pad(sp.toFixed(1),5)+' C  ';break;
+      case 2:vbuf='Kp: '+pad(kp_.toFixed(1),5)+'   ';break;
+      case 3:vbuf='Ki: '+pad(ki_.toFixed(2),5)+'   ';break;
+      case 4:vbuf='Kd: '+pad(kd_.toFixed(0),5)+'   ';break;
+      case 5:vbuf=ctrlOn?'CTRL: ON     ':'CTRL: OFF    ';break;
+    }
+    drawText(vbuf,22,tempFieldY[idx],2,C.YE,C.BK);
+  }else{
+    switch(idx){
+      case 0:vbuf='< BACK';break;
+      case 1:vbuf='SP: '+sp.toFixed(1)+' C';break;
+      case 2:vbuf='Kp: '+kp_.toFixed(1);break;
+      case 3:vbuf='Ki: '+ki_.toFixed(2);break;
+      case 4:vbuf='Kd: '+kd_.toFixed(0);break;
+      case 5:vbuf=ctrlOn?'CTRL: ON':'CTRL: OFF';break;
+    }
+    drawText(vbuf,16,tempFieldY[idx],1,C.GY,C.BK);
   }
-  ctx.fillStyle=C.BK;ctx.fillRect(0,190,SW,12);
-  drawText(padEnd(d.ip||'',28),6,190,1,C.CY,C.BK);
+}
+
+function drawSettingsScreen(d){
+  if(d.in_temp_sub){
+    drawText('TEMP SET',Math.floor((LEFT_W-8*12)/2),STATE_Y,2,C.WH,C.BK);
+    ctx.fillStyle=C.BK;ctx.fillRect(0,54,LEFT_W,6);
+    for(let i=0;i<6;i++) drawTempSubField(d,i,i===d.temp_field);
+  }else{
+    drawText('SETTINGS',Math.floor((LEFT_W-8*12)/2),STATE_Y,2,C.WH,C.BK);
+    ctx.fillStyle=C.BK;ctx.fillRect(0,54,LEFT_W,6);
+    for(let i=0;i<5;i++) drawSettingsField(d,i,i===d.settings_field);
+    ctx.fillStyle=C.BK;ctx.fillRect(0,170,LEFT_W,10);
+    if(d.dist_xa_steps>0){
+      drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,172,1,C.GR,C.BK);
+    }else{
+      drawText('NOT CALIBRATED      ',6,172,1,C.RE,C.BK);
+    }
+    ctx.fillStyle=C.BK;ctx.fillRect(0,183,LEFT_W,10);
+    drawText(padEnd(d.ip||'',28),6,185,1,C.CY,C.BK);
+  }
+}
+
+function drawTempColumn(d){
+  const tempC=d.temp_c;
+  const setpoint=d.temp_setpoint!==undefined?d.temp_setpoint:50;
+  const ctrlActive=!!d.temp_ctrl_active;
+  const heaterPct=Math.round((d.heater_duty||0)/255*100);
+  const fault=(tempC===null||tempC===undefined);
+  const stable=!fault&&ctrlActive&&Math.abs(tempC-setpoint)<=2.0;
+
+  ctx.fillStyle=C.BK;ctx.fillRect(TCOL_X,0,TCOL_W,SH);
+
+  let statusText,statusColor;
+  if(!ctrlActive){
+    statusText='CTRL:OFF';statusColor=C.GY;
+  }else if(stable){
+    statusText='STABLE  ';statusColor=C.GR;
+  }else{
+    const blink=Math.floor(Date.now()/500)%2;
+    statusText='CTRL: ON';statusColor=blink?C.YE:C.BK;
+  }
+  drawText(statusText,TCOL_X+2,4,1,statusColor,C.BK);
+
+  const pwrStr='PWR:'+String(heaterPct).padStart(3)+'%';
+  drawText(pwrStr,TCOL_X+2,18,1,C.CY,C.BK);
+
+  ctx.strokeStyle=C.CY;ctx.lineWidth=1;ctx.strokeRect(TBAR_X,TBAR_TOP,TBAR_W,TBAR_H);
+
+  if(fault){
+    ctx.fillStyle=C.RE;ctx.fillRect(TBAR_X+1,TBAR_TOP+1,TBAR_W-2,TBAR_H-2);
+    const ftx=TBAR_X+Math.floor((TBAR_W-3*6)/2);
+    drawText('FLT',ftx,TBAR_TOP+Math.floor(TBAR_H/2)-4,1,C.WH,C.RE);
+    ctx.fillStyle=C.BK;ctx.fillRect(TBAR_X+TBAR_W+3,TBAR_TOP,TCOL_X+TCOL_W-TBAR_X-TBAR_W-4,TBAR_H);
+  }else{
+    const clampedT=Math.max(0,Math.min(120,tempC));
+    const fillH=Math.max(0,Math.min(TBAR_H-2,Math.floor((TBAR_H-2)*clampedT/120)));
+    const fillY=TBAR_BOT-1-fillH;
+    const barColor=stable?C.GR:C.RE;
+    ctx.fillStyle=C.BK;ctx.fillRect(TBAR_X+1,TBAR_TOP+1,TBAR_W-2,TBAR_H-2-fillH);
+    if(fillH>0){ctx.fillStyle=barColor;ctx.fillRect(TBAR_X+1,fillY,TBAR_W-2,fillH);}
+
+    const spFrac=Math.max(0,Math.min(1,setpoint/120));
+    const spY=TBAR_BOT-1-Math.floor((TBAR_H-2)*spFrac);
+    ctx.strokeStyle=C.WH;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(TBAR_X-4,spY);ctx.lineTo(TBAR_X+TBAR_W+4,spY);ctx.stroke();
+
+    const labelX=TBAR_X+TBAR_W+3;
+    const labelY=Math.max(TBAR_TOP,Math.min(TBAR_BOT-8,fillY-1));
+    ctx.fillStyle=C.BK;ctx.fillRect(labelX,TBAR_TOP,TCOL_X+TCOL_W-labelX-1,TBAR_H);
+    drawText(tempC.toFixed(1),labelX,labelY,1,C.WH,C.BK);
+  }
+
+  ctx.strokeStyle=C.CY;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(TCOL_X-1,0);ctx.lineTo(TCOL_X-1,SH);ctx.stroke();
 }
 
 let lastInSettings=null;
+let lastInTempSub=null;
 const serialBadge=document.getElementById('serial-badge');
 const logStatusEl=document.getElementById('log-status');
 
 function render(d){
-  // Reveal the SERIAL badge once we receive a transport:serial frame (stays visible)
   if(d.transport==='serial') serialBadge.style.display='inline';
 
-  // Serial cable disconnected — show reconnecting notice without touching the canvas
   if(d.serial_lost){
     statusEl.firstChild.textContent='reconnecting... ';
     logStatusEl.innerHTML='';
     return;
   }
 
-  // Log status indicator — only shown when Python bridge is active and logging
   if(d.log_info&&d.log_info.active){
     logStatusEl.innerHTML=
       '&#x1F4DD;&nbsp;<span style="color:#f8fc00">'+d.log_info.filename+'</span><br>'
-      +'<span style="color:#888">→&nbsp;'+d.log_info.folder+'</span>';
-  } else {
+      +'<span style="color:#888">&#8594;&nbsp;'+d.log_info.folder+'</span>';
+  }else{
     logStatusEl.innerHTML='';
   }
 
   statusEl.firstChild.textContent='connected ';
   const inSettings=d.state==='SETTINGS';
-  if(inSettings!==lastInSettings){
-    ctx.fillStyle=C.BK;ctx.fillRect(0,DIV_TOP_Y+1,SW,DIV_BOT_Y-DIV_TOP_Y-1);
+  const inTempSub=!!d.in_temp_sub;
+  if(inSettings!==lastInSettings||inTempSub!==lastInTempSub){
+    ctx.fillStyle=C.BK;ctx.fillRect(0,DIV_TOP_Y+1,LEFT_W,DIV_BOT_Y-DIV_TOP_Y-1);
     lastInSettings=inSettings;
+    lastInTempSub=inTempSub;
   }
   if(inSettings) drawSettingsScreen(d); else drawRunScreen(d);
   drawButtons(d);
+  drawTempColumn(d);
   drawWifiIcon(d.rssi||0,d.clients||0);
   drawDividers();
 }
@@ -256,7 +356,7 @@ function render(d){
 ctx.fillStyle=C.BK;ctx.fillRect(0,0,SW,SH);
 drawDividers();
 
-// WebSocket URL: use port 8081 when served from Python bridge on localhost;
+// WebSocket URL: use port 8082 when served from Python bridge on localhost;
 // use the page host (port 80) when served directly from the ESP32.
 const wsUrl=(location.hostname==='localhost'||location.hostname==='127.0.0.1')
   ? 'ws://'+location.hostname+':8082/ws'
