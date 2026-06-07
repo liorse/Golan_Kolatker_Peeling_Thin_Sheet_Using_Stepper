@@ -635,25 +635,29 @@ function drawTempColumn(d){
 
   let statusText,statusColor;
   if(!ctrlActive){
-    statusText='CTRL:OFF';statusColor=C.GY;
+    statusText='OFF ';statusColor=C.GY;
   }else if(stable){
-    statusText='STABLE  ';statusColor=C.GR;
+    statusText='OK  ';statusColor=C.GR;
   }else{
     const blink=Math.floor(Date.now()/500)%2;
-    statusText='CTRL: ON';statusColor=blink?C.YE:C.BK;
+    statusText='HEAT';statusColor=blink?C.YE:C.BK;
   }
-  drawText(statusText,TCOL_X+2,4,1,statusColor,C.BK);
+  drawText(statusText,TCOL_X+2,2,2,statusColor,C.BK);
 
   const pwrStr='PWR:'+String(heaterPct).padStart(3)+'%';
-  drawText(pwrStr,TCOL_X+2,18,1,C.CY,C.BK);
+  drawText(pwrStr,TCOL_X+2,19,2,C.CY,C.BK);
 
   ctx.strokeStyle=C.CY;ctx.lineWidth=1;ctx.strokeRect(TBAR_X,TBAR_TOP,TBAR_W,TBAR_H);
+
+  const labelX=TBAR_X+TBAR_W+3;
+  const spFrac=Math.max(0,Math.min(1,setpoint/120));
+  const spY=TBAR_BOT-1-Math.floor((TBAR_H-2)*spFrac);
 
   if(fault){
     ctx.fillStyle=C.RE;ctx.fillRect(TBAR_X+1,TBAR_TOP+1,TBAR_W-2,TBAR_H-2);
     const ftx=TBAR_X+Math.floor((TBAR_W-3*6)/2);
     drawText('FLT',ftx,TBAR_TOP+Math.floor(TBAR_H/2)-4,1,C.WH,C.RE);
-    ctx.fillStyle=C.BK;ctx.fillRect(TBAR_X+TBAR_W+3,TBAR_TOP,TCOL_X+TCOL_W-TBAR_X-TBAR_W-4,TBAR_H);
+    ctx.fillStyle=C.BK;ctx.fillRect(labelX,TBAR_TOP,TCOL_X+TCOL_W-labelX-1,TBAR_H);
   }else{
     const clampedT=Math.max(0,Math.min(120,tempC));
     const fillH=Math.max(0,Math.min(TBAR_H-2,Math.floor((TBAR_H-2)*clampedT/120)));
@@ -662,16 +666,21 @@ function drawTempColumn(d){
     ctx.fillStyle=C.BK;ctx.fillRect(TBAR_X+1,TBAR_TOP+1,TBAR_W-2,TBAR_H-2-fillH);
     if(fillH>0){ctx.fillStyle=barColor;ctx.fillRect(TBAR_X+1,fillY,TBAR_W-2,fillH);}
 
-    const spFrac=Math.max(0,Math.min(1,setpoint/120));
-    const spY=TBAR_BOT-1-Math.floor((TBAR_H-2)*spFrac);
-    ctx.strokeStyle=C.WH;ctx.lineWidth=1;
-    ctx.beginPath();ctx.moveTo(TBAR_X-4,spY);ctx.lineTo(TBAR_X+TBAR_W+4,spY);ctx.stroke();
-
-    const labelX=TBAR_X+TBAR_W+3;
-    const labelY=Math.max(TBAR_TOP,Math.min(TBAR_BOT-8,fillY-1));
     ctx.fillStyle=C.BK;ctx.fillRect(labelX,TBAR_TOP,TCOL_X+TCOL_W-labelX-1,TBAR_H);
-    drawText(tempC.toFixed(1),labelX,labelY,1,C.WH,C.BK);
+
+    // Temp label centered in fill region
+    const fillCenter=fillY+Math.floor(fillH/2);
+    let lY=Math.max(TBAR_TOP,Math.min(TBAR_BOT-16,fillCenter-8));
+    if(Math.abs(lY-spY)<12) lY=Math.min(TBAR_BOT-16,spY+2);
+    drawText(tempC.toFixed(1),labelX,lY,2,C.WH,C.BK);
+
+    // Setpoint label above the line
+    const spLabelY=Math.max(TBAR_TOP,Math.min(TBAR_BOT-16,spY-17));
+    drawText(setpoint.toFixed(1),labelX,spLabelY,2,C.WH,C.BK);
   }
+
+  ctx.strokeStyle=C.WH;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(TBAR_X-4,spY);ctx.lineTo(TBAR_X+TBAR_W+4,spY);ctx.stroke();
 
   ctx.strokeStyle=C.CY;ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(TCOL_X-1,0);ctx.lineTo(TCOL_X-1,SH);ctx.stroke();
@@ -1132,7 +1141,16 @@ void clearContent() {
 // Run screen
 // =============================================================================
 void updateRunContent() {
-  // All data rows: label(4) + value(%7) + unit(4) = 15 chars = 180 px from x=6
+  static char    prevSb[22]    = {0};
+  static int32_t prevPosSteps  = INT32_MIN;
+  static bool    prevWarning   = false;
+  static char    prevSetBuf[20]= {0};
+  static char    prevRunBuf[20]= {0};
+  static int     prevAngle     = INT_MIN;
+  static char    prevEndBuf[20]= {0};
+  static char    prevPltBuf[20]= {0};
+  static int32_t prevFilled    = -1;
+
   char    buf[32];
   int32_t pos_steps   = stepper->getCurrentPosition();
   float   pos_um      = stepsToUm(pos_steps);
@@ -1140,7 +1158,7 @@ void updateRunContent() {
   float   actual_um_s = actual_hz * microns_per_step * stepToUmFactor();
   float   dist_xa_um  = stepsToUm(dist_xa_steps);
 
-  // ---- State label (centered by exact char count) ----
+  // ---- State label ----
   const char *stateStr = "IDLE";
   uint16_t    stateCol = ST77XX_GREEN;
   switch (appState) {
@@ -1152,71 +1170,91 @@ void updateRunContent() {
     case CAL_RUNNING:     stateStr = "CAL RUN";   stateCol = ST77XX_CYAN;   break;
     default: break;
   }
-  // Pad to 20 chars so background overwrites old text without a separate erase.
   {
     char sb[22];
     int  len = strlen(stateStr);
     int  lp  = (20 - len) / 2;
     int  i   = 0;
-    while (i < lp)        sb[i++] = ' ';
+    while (i < lp)       sb[i++] = ' ';
     for (int j = 0; j < len; j++) sb[i++] = stateStr[j];
-    while (i < 20)        sb[i++] = ' ';
+    while (i < 20)       sb[i++] = ' ';
     sb[i] = '\0';
-    tft.setTextSize(2);
-    tft.setTextColor(stateCol, ST77XX_BLACK);
-    tft.setCursor(X_OFF, STATE_Y);
-    tft.print(sb);
+    if (strcmp(sb, prevSb) != 0) {
+      tft.setTextSize(2);
+      tft.setTextColor(stateCol, ST77XX_BLACK);
+      tft.setCursor(X_OFF, STATE_Y);
+      tft.print(sb);
+      memcpy(prevSb, sb, sizeof(sb));
+    }
   }
 
   tft.setTextSize(2);
 
   // ---- Position (or warning) ----
-  tft.setCursor(6 + X_OFF, POS_Y);
-  if (millis() < warningUntil) {
-    tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
-    tft.print("!CAL FIRST!        ");   // 19 chars
-  } else {
-    tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-    tft.print("POS:");
-    tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-    snprintf(buf, sizeof(buf), "%7.1f", pos_um);
-    tft.print(buf);
-    tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-    tft.print("um      ");              // "um" + 6 spaces = 8 chars → total 4+7+8=19 ✓
+  bool warning = (millis() < warningUntil);
+  bool needPos = (warning != prevWarning) || (!warning && pos_steps != prevPosSteps);
+  if (needPos) {
+    tft.setCursor(6 + X_OFF, POS_Y);
+    if (warning) {
+      tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
+      tft.print("!CAL FIRST!        ");
+    } else {
+      tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+      tft.print("POS:");
+      tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      snprintf(buf, sizeof(buf), "%7.1f", pos_um);
+      tft.print(buf);
+      tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+      tft.print("um      ");
+    }
+    prevPosSteps = pos_steps;
+    prevWarning  = warning;
   }
 
-  // ---- Set speed — "SET:%7.1fum/s" = 4+7+4 = 15 chars ----
-  tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  tft.setCursor(6 + X_OFF, SETSPD_Y);
+  // ---- Set speed ----
   snprintf(buf, sizeof(buf), "SET:%7.1fum/s", speed_um_s);
-  tft.print(buf);
+  if (strcmp(buf, prevSetBuf) != 0) {
+    tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+    tft.setCursor(6 + X_OFF, SETSPD_Y);
+    tft.print(buf);
+    memcpy(prevSetBuf, buf, sizeof(prevSetBuf));
+  }
 
-  // ---- Run speed — "RUN:%7.1fum/s" = 4+7+4 = 15 chars ----
-  tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-  tft.setCursor(6 + X_OFF, RUNSPD_Y);
+  // ---- Run speed ----
   snprintf(buf, sizeof(buf), "RUN:%7.1fum/s", actual_um_s);
-  tft.print(buf);
+  if (strcmp(buf, prevRunBuf) != 0) {
+    tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    tft.setCursor(6 + X_OFF, RUNSPD_Y);
+    tft.print(buf);
+    memcpy(prevRunBuf, buf, sizeof(prevRunBuf));
+  }
 
-  // ---- Angle — "ANG:%7d deg" = 4+7+4 = 15 chars ----
-  tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  tft.setCursor(6 + X_OFF, ANGLE_Y);
-  snprintf(buf, sizeof(buf), "ANG:%7d deg", angle_deg);
-  tft.print(buf);
+  // ---- Angle ----
+  if (angle_deg != prevAngle) {
+    tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+    tft.setCursor(6 + X_OFF, ANGLE_Y);
+    snprintf(buf, sizeof(buf), "ANG:%7d deg", angle_deg);
+    tft.print(buf);
+    prevAngle = angle_deg;
+  }
 
   // ---- Time to end ----
-  tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  tft.setCursor(6 + X_OFF, PEELT_Y);
-  if (appState == PEELING && speed_um_s > 0.0f && pos_um < dist_xa_um) {
-    float t = (dist_xa_um - pos_um) / speed_um_s;
-    snprintf(buf, sizeof(buf), "END:%7.1f s  ", t);
-  } else {
-    snprintf(buf, sizeof(buf), "END:     -- s  ");
+  {
+    char endBuf[20];
+    if (appState == PEELING && speed_um_s > 0.0f && pos_um < dist_xa_um) {
+      snprintf(endBuf, sizeof(endBuf), "END:%7.1f s  ", (dist_xa_um - pos_um) / speed_um_s);
+    } else {
+      snprintf(endBuf, sizeof(endBuf), "END:     -- s  ");
+    }
+    if (strcmp(endBuf, prevEndBuf) != 0) {
+      tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+      tft.setCursor(6 + X_OFF, PEELT_Y);
+      tft.print(endBuf);
+      memcpy(prevEndBuf, endBuf, sizeof(prevEndBuf));
+    }
   }
-  tft.print(buf);
 
   // ---- Peel elapsed time ----
-  tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  tft.setCursor(6 + X_OFF, TOEND_Y);
   {
     char ts[14];
     if (appState == PEELING) {
@@ -1226,42 +1264,42 @@ void updateRunContent() {
       int mn    = tot_m % 60;
       int hr    = (tot_m / 60) % 24;
       int days  = tot_m / 1440;
-      if (days >= 10) {
-        snprintf(ts, sizeof(ts), "%dd %02d:%02d",      days, hr, mn);
-      } else if (days >= 1) {
-        snprintf(ts, sizeof(ts), "%dd %02d:%02d:%02d", days, hr, mn, sec);
-      } else if (hr >= 1) {
-        snprintf(ts, sizeof(ts), "%02d:%02d:%02d",     hr, mn, sec);
-      } else {
-        snprintf(ts, sizeof(ts), "%02d:%02d",          mn, sec);
-      }
+      if (days >= 10)     snprintf(ts, sizeof(ts), "%dd %02d:%02d",      days, hr, mn);
+      else if (days >= 1) snprintf(ts, sizeof(ts), "%dd %02d:%02d:%02d", days, hr, mn, sec);
+      else if (hr >= 1)   snprintf(ts, sizeof(ts), "%02d:%02d:%02d",     hr, mn, sec);
+      else                snprintf(ts, sizeof(ts), "%02d:%02d",          mn, sec);
     } else {
       snprintf(ts, sizeof(ts), "--");
     }
-    // Center ts within the 11-char value field
-    int   tslen = strlen(ts);
-    int   lpad  = (11 - tslen) / 2;
-    char  cb[16];
-    int   ci = 0;
-    for (int j = 0; j < lpad; j++)   cb[ci++] = ' ';
-    for (int j = 0; j < tslen; j++)  cb[ci++] = ts[j];
-    while (ci < 11)                   cb[ci++] = ' ';
+    int  tslen = strlen(ts);
+    int  lpad  = (11 - tslen) / 2;
+    char cb[16]; int ci = 0;
+    for (int j = 0; j < lpad; j++)  cb[ci++] = ' ';
+    for (int j = 0; j < tslen; j++) cb[ci++] = ts[j];
+    while (ci < 11)                  cb[ci++] = ' ';
     cb[ci] = '\0';
-    snprintf(buf, sizeof(buf), "PLT:%s", cb);
+    char pltBuf[20];
+    snprintf(pltBuf, sizeof(pltBuf), "PLT:%s", cb);
+    if (strcmp(pltBuf, prevPltBuf) != 0) {
+      tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+      tft.setCursor(6 + X_OFF, TOEND_Y);
+      tft.print(pltBuf);
+      memcpy(prevPltBuf, pltBuf, sizeof(prevPltBuf));
+    }
   }
-  tft.print(buf);
 
   // ---- Progress bar ----
-  tft.drawRect(BAR_X, BAR_Y, BAR_W, BAR_H, ST77XX_CYAN);
   int32_t filled = 0;
   if (dist_xa_steps > 0 && pos_steps > 0) {
     filled = (int32_t)(BAR_W - 2) * pos_steps / dist_xa_steps;
-    if (filled > BAR_W - 2) filled = BAR_W - 2;
-    if (filled < 0)          filled = 0;
+    filled = constrain(filled, 0L, (int32_t)(BAR_W - 2));
   }
-  tft.fillRect(BAR_X + 1,          BAR_Y + 1, filled,              BAR_H - 2, ST77XX_CYAN);
-  tft.fillRect(BAR_X + 1 + filled, BAR_Y + 1, BAR_W - 2 - filled, BAR_H - 2, ST77XX_BLACK);
-
+  if (filled != prevFilled) {
+    tft.drawRect(BAR_X, BAR_Y, BAR_W, BAR_H, ST77XX_CYAN);
+    tft.fillRect(BAR_X + 1,          BAR_Y + 1, filled,              BAR_H - 2, ST77XX_CYAN);
+    tft.fillRect(BAR_X + 1 + filled, BAR_Y + 1, BAR_W - 2 - filled, BAR_H - 2, ST77XX_BLACK);
+    prevFilled = filled;
+  }
 }
 
 
@@ -1414,7 +1452,7 @@ void updateTempColumn() {
     // Setpoint label: value above the line, right of bar
     int spLabelY = constrain(spY - 17, TBAR_TOP, TBAR_BOT - 16);
     char buf[8];
-    snprintf(buf, sizeof(buf), "%dC", (int)roundf(tempSetpoint));
+    snprintf(buf, sizeof(buf), "%5.1f", tempSetpoint);
     tft.setTextSize(2);
     tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     tft.setCursor(labelX, spLabelY);
@@ -1441,19 +1479,29 @@ void updateTempColumn() {
     bool     stable   = tempControlActive && fabsf(lastTempC - tempSetpoint) <= 2.0f;
     uint16_t barColor = stable ? ST77XX_GREEN : ST77XX_RED;
 
-    if (fillH != prevFillH || barColor != prevBarColor || forceBarRedraw) {
+    bool needFullBar = (barColor != prevBarColor) || forceBarRedraw || (prevFillH < 0);
+    if (needFullBar) {
       tft.drawRect(TBAR_X, TBAR_TOP, TBAR_W, TBAR_H, ST77XX_CYAN);
       if (fillH < TBAR_H - 2)
         tft.fillRect(TBAR_X + 1, TBAR_TOP + 1, TBAR_W - 2, TBAR_H - 2 - fillH, ST77XX_BLACK);
       if (fillH > 0)
         tft.fillRect(TBAR_X + 1, fillY, TBAR_W - 2, fillH, barColor);
-      // Restore setpoint line that fill may have overwritten
       tft.drawFastHLine(TBAR_X - 4, spY, TBAR_W + 8, ST77XX_WHITE);
       prevFillH    = fillH;
       prevBarColor = barColor;
+    } else if (fillH != prevFillH) {
+      // Delta draw: only repaint the rows that changed
+      int prevFillY = TBAR_BOT - 1 - prevFillH;
+      if (fillH > prevFillH) {
+        tft.fillRect(TBAR_X + 1, fillY, TBAR_W - 2, prevFillY - fillY, barColor);
+      } else {
+        tft.fillRect(TBAR_X + 1, prevFillY, TBAR_W - 2, fillY - prevFillY, ST77XX_BLACK);
+      }
+      tft.drawFastHLine(TBAR_X - 4, spY, TBAR_W + 8, ST77XX_WHITE);
+      prevFillH = fillH;
     }
 
-    // ---- Temp label (size-2, floats right of bar near fill top) ----
+    // ---- Temp label (size-2, centered vertically in fill region) ----
     char tBuf[8];
     snprintf(tBuf, sizeof(tBuf), "%5.1f", lastTempC);
     bool needsRedraw = (prevTempLabelY < 0);
@@ -1463,8 +1511,8 @@ void updateTempColumn() {
       needsRedraw = (strcmp(tBuf, pBuf) != 0);
     }
     if (needsRedraw) {
-      // Position: just above fill top; pushed below setpoint line if too close
-      int lY = constrain(fillY - 17, TBAR_TOP, TBAR_BOT - 16);
+      int fillCenter = fillY + fillH / 2;
+      int lY = constrain(fillCenter - 8, TBAR_TOP, TBAR_BOT - 16);
       if (abs(lY - spY) < 12)
         lY = constrain(spY + 2, TBAR_TOP, TBAR_BOT - 16);
 
@@ -1488,8 +1536,17 @@ void updateTempColumn() {
       tft.setCursor(TBAR_X + 2, TBAR_TOP + TBAR_H / 2 - 4);
       tft.print("FLT");
       tft.fillRect(labelX, TBAR_TOP, SCREEN_W - labelX, TBAR_H, ST77XX_BLACK);
-      // Restore setpoint line over fault fill
       tft.drawFastHLine(TBAR_X - 4, spY, TBAR_W + 8, ST77XX_WHITE);
+      // Restore setpoint label (erased by the label area clear above)
+      {
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%5.1f", tempSetpoint);
+        int spLabelY = constrain(spY - 17, TBAR_TOP, TBAR_BOT - 16);
+        tft.setTextSize(2);
+        tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+        tft.setCursor(labelX, spLabelY);
+        tft.print(buf);
+      }
     }
   }
 }

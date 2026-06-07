@@ -274,25 +274,29 @@ function drawTempColumn(d){
 
   let statusText,statusColor;
   if(!ctrlActive){
-    statusText='CTRL:OFF';statusColor=C.GY;
+    statusText='OFF ';statusColor=C.GY;
   }else if(stable){
-    statusText='STABLE  ';statusColor=C.GR;
+    statusText='OK  ';statusColor=C.GR;
   }else{
     const blink=Math.floor(Date.now()/500)%2;
-    statusText='CTRL: ON';statusColor=blink?C.YE:C.BK;
+    statusText='HEAT';statusColor=blink?C.YE:C.BK;
   }
-  drawText(statusText,TCOL_X+2,4,1,statusColor,C.BK);
+  drawText(statusText,TCOL_X+2,2,2,statusColor,C.BK);
 
   const pwrStr='PWR:'+String(heaterPct).padStart(3)+'%';
-  drawText(pwrStr,TCOL_X+2,18,1,C.CY,C.BK);
+  drawText(pwrStr,TCOL_X+2,19,2,C.CY,C.BK);
 
   ctx.strokeStyle=C.CY;ctx.lineWidth=1;ctx.strokeRect(TBAR_X,TBAR_TOP,TBAR_W,TBAR_H);
+
+  const labelX=TBAR_X+TBAR_W+3;
+  const spFrac=Math.max(0,Math.min(1,setpoint/120));
+  const spY=TBAR_BOT-1-Math.floor((TBAR_H-2)*spFrac);
 
   if(fault){
     ctx.fillStyle=C.RE;ctx.fillRect(TBAR_X+1,TBAR_TOP+1,TBAR_W-2,TBAR_H-2);
     const ftx=TBAR_X+Math.floor((TBAR_W-3*6)/2);
     drawText('FLT',ftx,TBAR_TOP+Math.floor(TBAR_H/2)-4,1,C.WH,C.RE);
-    ctx.fillStyle=C.BK;ctx.fillRect(TBAR_X+TBAR_W+3,TBAR_TOP,TCOL_X+TCOL_W-TBAR_X-TBAR_W-4,TBAR_H);
+    ctx.fillStyle=C.BK;ctx.fillRect(labelX,TBAR_TOP,TCOL_X+TCOL_W-labelX-1,TBAR_H);
   }else{
     const clampedT=Math.max(0,Math.min(120,tempC));
     const fillH=Math.max(0,Math.min(TBAR_H-2,Math.floor((TBAR_H-2)*clampedT/120)));
@@ -301,16 +305,21 @@ function drawTempColumn(d){
     ctx.fillStyle=C.BK;ctx.fillRect(TBAR_X+1,TBAR_TOP+1,TBAR_W-2,TBAR_H-2-fillH);
     if(fillH>0){ctx.fillStyle=barColor;ctx.fillRect(TBAR_X+1,fillY,TBAR_W-2,fillH);}
 
-    const spFrac=Math.max(0,Math.min(1,setpoint/120));
-    const spY=TBAR_BOT-1-Math.floor((TBAR_H-2)*spFrac);
-    ctx.strokeStyle=C.WH;ctx.lineWidth=1;
-    ctx.beginPath();ctx.moveTo(TBAR_X-4,spY);ctx.lineTo(TBAR_X+TBAR_W+4,spY);ctx.stroke();
-
-    const labelX=TBAR_X+TBAR_W+3;
-    const labelY=Math.max(TBAR_TOP,Math.min(TBAR_BOT-8,fillY-1));
     ctx.fillStyle=C.BK;ctx.fillRect(labelX,TBAR_TOP,TCOL_X+TCOL_W-labelX-1,TBAR_H);
-    drawText(tempC.toFixed(1),labelX,labelY,1,C.WH,C.BK);
+
+    // Temp label centered in fill region
+    const fillCenter=fillY+Math.floor(fillH/2);
+    let lY=Math.max(TBAR_TOP,Math.min(TBAR_BOT-16,fillCenter-8));
+    if(Math.abs(lY-spY)<12) lY=Math.min(TBAR_BOT-16,spY+2);
+    drawText(tempC.toFixed(1),labelX,lY,2,C.WH,C.BK);
+
+    // Setpoint label above the line
+    const spLabelY=Math.max(TBAR_TOP,Math.min(TBAR_BOT-16,spY-17));
+    drawText(setpoint.toFixed(1),labelX,spLabelY,2,C.WH,C.BK);
   }
+
+  ctx.strokeStyle=C.WH;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(TBAR_X-4,spY);ctx.lineTo(TBAR_X+TBAR_W+4,spY);ctx.stroke();
 
   ctx.strokeStyle=C.CY;ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(TCOL_X-1,0);ctx.lineTo(TCOL_X-1,SH);ctx.stroke();
