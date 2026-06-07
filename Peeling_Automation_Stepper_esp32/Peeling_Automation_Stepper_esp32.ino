@@ -172,6 +172,8 @@ uint8_t heaterDuty = 0;            // current LEDC duty (0–255); updated by 'h
 // ---- Temperature controller state ------------------------------------------
 float tempSetpoint       = 50.0f;  // target °C (0–120)
 bool  tempControlActive  = false;  // PID loop enabled (control loop deferred to next step)
+bool  waitForTemp        = false;  // hold peel until temp reaches setpoint
+bool  tempCtrlAutoEnabled = false; // true when GO auto-enabled temp control (so we auto-disable on end)
 float kp                 = 60.0f;  // proportional gain
 float ki                 =  0.15f; // integral gain
 float kd                 = 900.0f; // derivative gain
@@ -190,7 +192,7 @@ TempField tempField        = TFIELD_BACK;
 int       prevTempFieldIdx = -1;   // -1 = first draw needed in temp sub-menu
 
 // ---- Persistent storage -----------------------------------------------------
-#define EEPROM_MAGIC  0x50454C35u   // "PEL5" — temperature controller fields added
+#define EEPROM_MAGIC  0x50454C36u   // "PEL6" — wait_for_temp setting added
 #define EEPROM_ADDR   0
 #define EEPROM_SIZE   128
 
@@ -205,6 +207,7 @@ struct SavedSettings {
   float    ki;
   float    kd;
   bool     tempControlActive;
+  bool     waitForTemp;
 };
 
 // ---- Application state ------------------------------------------------------
@@ -212,6 +215,7 @@ enum AppState {
   IDLE,
   MOVING,            // serial-commanded move (no auto-peel)
   MOVING_TO_START,   // button-triggered: moves to start_pos, then auto-peels
+  WAITING_FOR_TEMP,  // motor at start pos, waiting for temperature to reach setpoint
   PEELING,
   HOMING,
   SETTINGS,
@@ -220,7 +224,7 @@ enum AppState {
 };
 AppState appState = IDLE;
 
-enum SettingsField { FIELD_SPEED, FIELD_ANGLE, FIELD_START, FIELD_CAL, FIELD_TEMP };
+enum SettingsField { FIELD_SPEED, FIELD_ANGLE, FIELD_START, FIELD_CAL, FIELD_TEMP, FIELD_WAIT_TEMP };
 SettingsField settingsField = FIELD_SPEED;
 
 // ---- User-configurable values -----------------------------------------------
@@ -339,6 +343,7 @@ void loadPrefs() {
     ki                 = s.ki;
     kd                 = s.kd;
     tempControlActive  = false;  // always boot with control off — safety gate
+    waitForTemp        = s.waitForTemp;
   }
 }
 
@@ -354,6 +359,7 @@ void saveAll() {
   s.ki                = ki;
   s.kd                = kd;
   s.tempControlActive = tempControlActive;
+  s.waitForTemp       = waitForTemp;
   EEPROM.put(EEPROM_ADDR, s);
   EEPROM.commit();
 }
@@ -389,12 +395,12 @@ const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=LEFT_W-BTN_W-3,BTN_TOP_Y=3,BTN_
 const DIV_TOP_Y=33,DIV_BOT_Y=207;
 const STATE_Y=36,POS_Y=56,SETSPD_Y=76,RUNSPD_Y=96,ANGLE_Y=116,TOEND_Y=136,PEELT_Y=156;
 const BAR_X=20,BAR_Y=178,BAR_W=168,BAR_H=12;
-const fieldY=[60,82,104,126,148];
+const fieldY=[60,82,104,126,148,170];
 const tempFieldY=[60,82,104,126,148,170];
 const TCOL_X=200,TCOL_W=120;
 const TBAR_X=209,TBAR_W=40,TBAR_TOP=46,TBAR_BOT=220,TBAR_H=TBAR_BOT-TBAR_TOP;
 const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484'};
-const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
+const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,WAIT_TEMP:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
 
 const cv=document.getElementById('c');
 const ctx=cv.getContext('2d');
@@ -489,6 +495,7 @@ function drawButtons(d){
     }else{
       if(d.settings_field===3) xLbl='CAL';
       else if(d.settings_field===4) xLbl='OPEN';
+      else if(d.settings_field===5){xLbl='YES';yLbl='NO';}
     }
     drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,xLbl,btn[2],2);
     drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,yLbl,btn[3],2);
@@ -565,6 +572,7 @@ function drawSettingsField(d,idx,active){
       case 2:vbuf='ST: '+d.start_pos_um.toFixed(0)+'um   ';break;
       case 3:vbuf='CAL:press CAL';break;
       case 4:vbuf='TEMP SETTINGS';break;
+      case 5:vbuf=d.wait_for_temp?'WAIT:YES     ':'WAIT:NO      ';break;
     }
     drawText(vbuf,22,fieldY[idx],2,C.YE,C.BK);
   }else{
@@ -574,6 +582,7 @@ function drawSettingsField(d,idx,active){
       case 2:vbuf='START: '+d.start_pos_um.toFixed(0)+' um';break;
       case 3:vbuf='CAL (press CAL)';break;
       case 4:vbuf='TEMP (press OPEN)';break;
+      case 5:vbuf=d.wait_for_temp?'WAIT TEMP: YES':'WAIT TEMP: NO';break;
     }
     drawText(vbuf,16,fieldY[idx],1,C.GY,C.BK);
   }
@@ -619,15 +628,13 @@ function drawSettingsScreen(d){
   }else{
     drawText('SETTINGS',Math.floor((LEFT_W-8*12)/2),STATE_Y,2,C.WH,C.BK);
     ctx.fillStyle=C.BK;ctx.fillRect(0,54,LEFT_W,6);
-    for(let i=0;i<5;i++) drawSettingsField(d,i,i===d.settings_field);
-    ctx.fillStyle=C.BK;ctx.fillRect(0,170,LEFT_W,10);
+    for(let i=0;i<6;i++) drawSettingsField(d,i,i===d.settings_field);
+    ctx.fillStyle=C.BK;ctx.fillRect(0,190,LEFT_W,4);
     if(d.dist_xa_steps>0){
-      drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,172,1,C.GR,C.BK);
+      drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,194,1,C.GR,C.BK);
     }else{
-      drawText('NOT CALIBRATED      ',6,172,1,C.RE,C.BK);
+      drawText('NOT CALIBRATED      ',6,194,1,C.RE,C.BK);
     }
-    ctx.fillStyle=C.BK;ctx.fillRect(0,183,LEFT_W,10);
-    drawText(padEnd(d.ip||'',28),6,185,1,C.CY,C.BK);
   }
 }
 
@@ -829,6 +836,7 @@ void doIncrement(int dir, bool fast) {
     }
     case FIELD_CAL:
     case FIELD_TEMP:
+    case FIELD_WAIT_TEMP:
       break;
   }
   settingsDirty = true;
@@ -906,10 +914,26 @@ void abortAndIdle() {
   stepper->forceStop();
   disableMotor();
   startPeelAt = 0;
-  appState    = IDLE;
+  if (tempCtrlAutoEnabled) {
+    tempControlActive   = false;
+    heaterDuty          = 0;
+    ledcWrite(HEATER_PIN, 0);
+    tempCtrlAutoEnabled = false;
+  }
+  appState = IDLE;
 }
 
 void startMoveToStart() {
+  if (waitForTemp && !tempControlActive) {
+    pidIntegral         = 0.0f;
+    pidLastError        = 0.0f;
+    pidFilteredDeriv    = 0.0f;
+    lastPidRunMs        = 0;
+    tempControlActive   = true;
+    tempCtrlAutoEnabled = true;
+  } else {
+    tempCtrlAutoEnabled = false;
+  }
   appState = MOVING_TO_START;
   enableMotor();
   stepper->setSpeedInHz(calSpeedHz());
@@ -941,11 +965,12 @@ void startCal() {
 
 void cycleSettingsField() {
   switch (settingsField) {
-    case FIELD_SPEED: settingsField = FIELD_ANGLE; break;
-    case FIELD_ANGLE: settingsField = FIELD_START; break;
-    case FIELD_START: settingsField = FIELD_CAL;   break;
-    case FIELD_CAL:   settingsField = FIELD_TEMP;  break;
-    case FIELD_TEMP:
+    case FIELD_SPEED:     settingsField = FIELD_ANGLE;     break;
+    case FIELD_ANGLE:     settingsField = FIELD_START;     break;
+    case FIELD_START:     settingsField = FIELD_CAL;       break;
+    case FIELD_CAL:       settingsField = FIELD_TEMP;      break;
+    case FIELD_TEMP:      settingsField = FIELD_WAIT_TEMP; break;
+    case FIELD_WAIT_TEMP:
       saveSettings();
       appState = IDLE;
       return;
@@ -1020,23 +1045,30 @@ void onButtonPress(int idx) {
       } else {
         if (idx == IDX_A) {          // A = navigate up
           switch (settingsField) {
-            case FIELD_ANGLE: settingsField = FIELD_SPEED; break;
-            case FIELD_START: settingsField = FIELD_ANGLE; break;
-            case FIELD_CAL:   settingsField = FIELD_START; break;
-            case FIELD_TEMP:  settingsField = FIELD_CAL;   break;
+            case FIELD_ANGLE:     settingsField = FIELD_SPEED;     break;
+            case FIELD_START:     settingsField = FIELD_ANGLE;     break;
+            case FIELD_CAL:       settingsField = FIELD_START;     break;
+            case FIELD_TEMP:      settingsField = FIELD_CAL;       break;
+            case FIELD_WAIT_TEMP: settingsField = FIELD_TEMP;      break;
             default: break;          // FIELD_SPEED: already at top, no-op
           }
           settingsDirty = true;
-        } else if (idx == IDX_X) {   // X = increment, CAL trigger, or enter TEMP sub-menu
+        } else if (idx == IDX_X) {   // X = increment, CAL trigger, TEMP sub-menu, or WAIT YES
           if (settingsField == FIELD_CAL) {
             startCal();
           } else if (settingsField == FIELD_TEMP) {
             enterTempSubMenu();
+          } else if (settingsField == FIELD_WAIT_TEMP) {
+            waitForTemp   = true;
+            settingsDirty = true;
           } else {
             doIncrement(+1, false);
           }
-        } else if (idx == IDX_Y) {   // Y = decrement (no-op on CAL/TEMP fields)
-          if (settingsField != FIELD_CAL && settingsField != FIELD_TEMP) {
+        } else if (idx == IDX_Y) {   // Y = decrement (no-op on CAL/TEMP; NO on WAIT_TEMP)
+          if (settingsField == FIELD_WAIT_TEMP) {
+            waitForTemp   = false;
+            settingsDirty = true;
+          } else if (settingsField != FIELD_CAL && settingsField != FIELD_TEMP) {
             doIncrement(-1, false);
           }
         }
@@ -1046,6 +1078,7 @@ void onButtonPress(int idx) {
 
     case MOVING:
     case MOVING_TO_START:
+    case WAITING_FOR_TEMP:
     case PEELING:
     case HOMING:
     case CAL_HOMING:
@@ -1076,7 +1109,7 @@ void onButtonLong(int idx) {
     if (idx == IDX_X) doTempIncrement(+1, false);
     else if (idx == IDX_Y) doTempIncrement(-1, false);
   } else {
-    if (settingsField == FIELD_CAL || settingsField == FIELD_TEMP) return;
+    if (settingsField == FIELD_CAL || settingsField == FIELD_TEMP || settingsField == FIELD_WAIT_TEMP) return;
     if (idx == IDX_X) doIncrement(+1, false);
     else if (idx == IDX_Y) doIncrement(-1, false);
   }
@@ -1089,7 +1122,7 @@ void onButtonRepeat(int idx) {
     if (idx == IDX_X) doTempIncrement(+1, true);
     else if (idx == IDX_Y) doTempIncrement(-1, true);
   } else {
-    if (settingsField == FIELD_CAL || settingsField == FIELD_TEMP) return;
+    if (settingsField == FIELD_CAL || settingsField == FIELD_TEMP || settingsField == FIELD_WAIT_TEMP) return;
     if (idx == IDX_X) doIncrement(+1, true);
     else if (idx == IDX_Y) doIncrement(-1, true);
   }
@@ -1126,10 +1159,11 @@ void updateButtons() {
       else                                    xLbl = "+";
       yLbl = (tempField == TFIELD_STARTSTOP) ? "OFF" : "-";
     } else {
-      if      (settingsField == FIELD_CAL)  xLbl = "CAL";
-      else if (settingsField == FIELD_TEMP) xLbl = "OPEN";
-      else                                  xLbl = "+";
-      yLbl = "-";
+      if      (settingsField == FIELD_CAL)       xLbl = "CAL";
+      else if (settingsField == FIELD_TEMP)      xLbl = "OPEN";
+      else if (settingsField == FIELD_WAIT_TEMP) xLbl = "YES";
+      else                                       xLbl = "+";
+      yLbl = (settingsField == FIELD_WAIT_TEMP) ? "NO" : "-";
     }
     drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, xLbl, btnDown[IDX_X]);
     drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, yLbl, btnDown[IDX_Y]);
@@ -1193,12 +1227,13 @@ void updateRunContent() {
   const char *stateStr = "IDLE";
   uint16_t    stateCol = ST77XX_GREEN;
   switch (appState) {
-    case MOVING:          stateStr = "MOVING";    stateCol = ST77XX_YELLOW; break;
-    case MOVING_TO_START: stateStr = "TO START";  stateCol = ST77XX_YELLOW; break;
-    case PEELING:         stateStr = "PEELING";   stateCol = ST77XX_YELLOW; break;
-    case HOMING:          stateStr = "HOMING";    stateCol = ST77XX_CYAN;   break;
-    case CAL_HOMING:      stateStr = "CAL HOME";  stateCol = ST77XX_CYAN;   break;
-    case CAL_RUNNING:     stateStr = "CAL RUN";   stateCol = ST77XX_CYAN;   break;
+    case MOVING:           stateStr = "MOVING";    stateCol = ST77XX_YELLOW; break;
+    case MOVING_TO_START:  stateStr = "TO START";  stateCol = ST77XX_YELLOW; break;
+    case WAITING_FOR_TEMP: stateStr = "WAIT TMP";  stateCol = ST77XX_YELLOW; break;
+    case PEELING:          stateStr = "PEELING";   stateCol = ST77XX_YELLOW; break;
+    case HOMING:           stateStr = "HOMING";    stateCol = ST77XX_CYAN;   break;
+    case CAL_HOMING:       stateStr = "CAL HOME";  stateCol = ST77XX_CYAN;   break;
+    case CAL_RUNNING:      stateStr = "CAL RUN";   stateCol = ST77XX_CYAN;   break;
     default: break;
   }
   {
@@ -1340,8 +1375,8 @@ void updateRunContent() {
 // Settings screen
 // =============================================================================
 void drawSettingsField(int idx, bool active) {
-  // 5 fields, 22 px apart; last field ends at 148+20=168, cal status at 172.
-  const int fieldY[5] = { 60, 82, 104, 126, 148 };
+  // 6 fields, 22 px apart; last field ends at 170+20=190, cal status at 192.
+  const int fieldY[6] = { 60, 82, 104, 126, 148, 170 };
   tft.fillRect(0, fieldY[idx], LEFT_W, 20, ST77XX_BLACK);
   char vbuf[24];
   if (active) {
@@ -1351,11 +1386,12 @@ void drawSettingsField(int idx, bool active) {
     tft.print(">");
     tft.setCursor(22, fieldY[idx]);
     switch (idx) {
-      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg  ", angle_deg);   break;
-      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s ", speed_um_s);  break;
-      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "ST: %.0fum   ", start_pos_um); break;
-      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL:press CAL");               break;
-      case FIELD_TEMP:  snprintf(vbuf, sizeof(vbuf), "TEMP SETTINGS");               break;
+      case FIELD_ANGLE:     snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg  ", angle_deg);                       break;
+      case FIELD_SPEED:     snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s ", speed_um_s);                       break;
+      case FIELD_START:     snprintf(vbuf, sizeof(vbuf), "ST: %.0fum   ", start_pos_um);                     break;
+      case FIELD_CAL:       snprintf(vbuf, sizeof(vbuf), "CAL:press CAL");                                   break;
+      case FIELD_TEMP:      snprintf(vbuf, sizeof(vbuf), "TEMP SETTINGS");                                   break;
+      case FIELD_WAIT_TEMP: snprintf(vbuf, sizeof(vbuf), waitForTemp ? "WAIT:YES     " : "WAIT:NO      ");   break;
     }
     tft.print(vbuf);
   } else {
@@ -1363,11 +1399,12 @@ void drawSettingsField(int idx, bool active) {
     tft.setTextColor(0x8410, ST77XX_BLACK);
     tft.setCursor(16, fieldY[idx]);
     switch (idx) {
-      case FIELD_ANGLE: snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);       break;
-      case FIELD_SPEED: snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);   break;
-      case FIELD_START: snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um); break;
-      case FIELD_CAL:   snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");              break;
-      case FIELD_TEMP:  snprintf(vbuf, sizeof(vbuf), "TEMP (press OPEN)");            break;
+      case FIELD_ANGLE:     snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);                      break;
+      case FIELD_SPEED:     snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);                  break;
+      case FIELD_START:     snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um);                break;
+      case FIELD_CAL:       snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");                             break;
+      case FIELD_TEMP:      snprintf(vbuf, sizeof(vbuf), "TEMP (press OPEN)");                           break;
+      case FIELD_WAIT_TEMP: snprintf(vbuf, sizeof(vbuf), waitForTemp ? "WAIT TEMP: YES" : "WAIT TEMP: NO"); break;
     }
     tft.print(vbuf);
   }
@@ -1615,11 +1652,11 @@ void updateSettingsContent() {
       tft.setCursor((LEFT_W - 8 * 12) / 2, STATE_Y);
       tft.print("SETTINGS");
       drawSettingsHint(curIdx);
-      for (int i = 0; i < 5; i++) drawSettingsField(i, i == curIdx);
+      for (int i = 0; i < 6; i++) drawSettingsField(i, i == curIdx);
       char  vbuf[24];
       float dist_xa_um = stepsToUm(dist_xa_steps);
       tft.setTextSize(1);
-      tft.setCursor(6, 172);
+      tft.setCursor(6, 192);
       if (dist_xa_steps > 0) {
         tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
         snprintf(vbuf, sizeof(vbuf), "X-A: %.1f um    ", dist_xa_um);
@@ -1790,21 +1827,22 @@ static void sendWsJson() {
 
   const char *stateStr;
   switch (appState) {
-    case MOVING:          stateStr = "MOVING";    break;
-    case MOVING_TO_START: stateStr = "TO_START";  break;
-    case PEELING:         stateStr = "PEELING";   break;
-    case HOMING:          stateStr = "HOMING";    break;
-    case SETTINGS:        stateStr = "SETTINGS";  break;
-    case CAL_HOMING:      stateStr = "CAL_HOME";  break;
-    case CAL_RUNNING:     stateStr = "CAL_RUN";   break;
-    default:              stateStr = "IDLE";      break;
+    case MOVING:           stateStr = "MOVING";     break;
+    case MOVING_TO_START:  stateStr = "TO_START";   break;
+    case WAITING_FOR_TEMP: stateStr = "WAIT_TEMP";  break;
+    case PEELING:          stateStr = "PEELING";    break;
+    case HOMING:           stateStr = "HOMING";     break;
+    case SETTINGS:         stateStr = "SETTINGS";   break;
+    case CAL_HOMING:       stateStr = "CAL_HOME";   break;
+    case CAL_RUNNING:      stateStr = "CAL_RUN";    break;
+    default:               stateStr = "IDLE";       break;
   }
 
   char tempBuf[12];
   if (isnan(lastTempC)) snprintf(tempBuf, sizeof(tempBuf), "null");
   else                  snprintf(tempBuf, sizeof(tempBuf), "%.1f", lastTempC);
 
-  char json[620];
+  char json[660];
   snprintf(json, sizeof(json),
     "{\"state\":\"%s\","
     "\"position\":%d,"
@@ -1829,6 +1867,7 @@ static void sendWsJson() {
     "\"heater_duty\":%d,"
     "\"temp_setpoint\":%.1f,"
     "\"temp_ctrl_active\":%s,"
+    "\"wait_for_temp\":%s,"
     "\"kp\":%.2f,"
     "\"ki\":%.3f,"
     "\"kd\":%.1f,"
@@ -1859,6 +1898,7 @@ static void sendWsJson() {
     (int)heaterDuty,
     tempSetpoint,
     tempControlActive ? "true" : "false",
+    waitForTemp ? "true" : "false",
     kp,
     ki,
     kd,
@@ -1996,7 +2036,7 @@ void loop() {
       appState = IDLE;
       updateButtons();
     }
-  } else if (appState == MOVING || appState == MOVING_TO_START || appState == PEELING) {
+  } else if (appState == MOVING || appState == MOVING_TO_START || appState == WAITING_FOR_TEMP || appState == PEELING) {
     if (xNewPress || yNewPress) {               // new contact only — not a stale press
       abortAndIdle();
       updateButtons();
@@ -2081,9 +2121,21 @@ void loop() {
       if (startPeelAt == 0 && !stepper->isRunning()) {
         startPeelAt = now + 100;
       }
-      // Fire peel after 100 ms pause
+      // After 100 ms pause: enter WAITING_FOR_TEMP or start peeling immediately
       if (startPeelAt > 0 && now >= startPeelAt) {
         startPeelAt = 0;
+        if (waitForTemp) {
+          appState = WAITING_FOR_TEMP;
+        } else {
+          startPeeling();
+        }
+        updateButtons();
+      }
+      break;
+
+    case WAITING_FOR_TEMP:
+      // Start peel once temperature is within ±2 °C of setpoint
+      if (!isnan(lastTempC) && fabsf(lastTempC - tempSetpoint) <= 2.0f) {
         startPeeling();
         updateButtons();
       }
@@ -2093,6 +2145,12 @@ void loop() {
       // Motor reached dist_xa_steps
       if (!stepper->isRunning()) {
         disableMotor();
+        if (tempCtrlAutoEnabled) {
+          tempControlActive   = false;
+          heaterDuty          = 0;
+          ledcWrite(HEATER_PIN, 0);
+          tempCtrlAutoEnabled = false;
+        }
         appState = IDLE;
         updateButtons();
       }
@@ -2127,16 +2185,6 @@ void loop() {
     tft.drawFastHLine(0, DIV_BOT_Y, LEFT_W, ST77XX_CYAN);
     tft.drawFastVLine(TCOL_X - 1, 0, SCREEN_H, ST77XX_CYAN);
     updateTempColumn();
-
-    // IP line in settings screen (redrawn every tick so it updates when WiFi connects)
-    if (inSettingsScreen && !inTempSubMenu) {
-      tft.setTextSize(1);
-      tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-      tft.setCursor(6, 185);
-      char ipBuf[30];
-      snprintf(ipBuf, sizeof(ipBuf), "%-28s", wifiIpStr);
-      tft.print(ipBuf);
-    }
 
     // IP address centered between bottom buttons (run screen only, redraws only on change).
     {
@@ -2260,21 +2308,22 @@ void loop() {
 
       const char *stateStr;
       switch (appState) {
-        case MOVING:          stateStr = "MOVING";    break;
-        case MOVING_TO_START: stateStr = "TO_START";  break;
-        case PEELING:         stateStr = "PEELING";   break;
-        case HOMING:          stateStr = "HOMING";    break;
-        case SETTINGS:        stateStr = "SETTINGS";  break;
-        case CAL_HOMING:      stateStr = "CAL_HOME";  break;
-        case CAL_RUNNING:     stateStr = "CAL_RUN";   break;
-        default:              stateStr = "IDLE";      break;
+        case MOVING:           stateStr = "MOVING";     break;
+        case MOVING_TO_START:  stateStr = "TO_START";   break;
+        case WAITING_FOR_TEMP: stateStr = "WAIT_TEMP";  break;
+        case PEELING:          stateStr = "PEELING";    break;
+        case HOMING:           stateStr = "HOMING";     break;
+        case SETTINGS:         stateStr = "SETTINGS";   break;
+        case CAL_HOMING:       stateStr = "CAL_HOME";   break;
+        case CAL_RUNNING:      stateStr = "CAL_RUN";    break;
+        default:               stateStr = "IDLE";       break;
       }
 
       char tempBuf[12];
       if (isnan(lastTempC)) snprintf(tempBuf, sizeof(tempBuf), "null");
       else                  snprintf(tempBuf, sizeof(tempBuf), "%.1f", lastTempC);
 
-      char json[620];
+      char json[660];
       snprintf(json, sizeof(json),
         "{\"state\":\"%s\","
         "\"position\":%d,"
@@ -2299,6 +2348,7 @@ void loop() {
         "\"heater_duty\":%d,"
         "\"temp_setpoint\":%.1f,"
         "\"temp_ctrl_active\":%s,"
+        "\"wait_for_temp\":%s,"
         "\"kp\":%.2f,"
         "\"ki\":%.3f,"
         "\"kd\":%.1f,"
@@ -2329,6 +2379,7 @@ void loop() {
         (int)heaterDuty,
         tempSetpoint,
         tempControlActive ? "true" : "false",
+        waitForTemp ? "true" : "false",
         kp,
         ki,
         kd,

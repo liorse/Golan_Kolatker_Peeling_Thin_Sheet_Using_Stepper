@@ -23,12 +23,12 @@ const BTN_W=52,BTN_H=28,BTN_LEFT_X=3,BTN_RIGHT_X=LEFT_W-BTN_W-3,BTN_TOP_Y=3,BTN_
 const DIV_TOP_Y=33,DIV_BOT_Y=207;
 const STATE_Y=36,POS_Y=56,SETSPD_Y=76,RUNSPD_Y=96,ANGLE_Y=116,TOEND_Y=136,PEELT_Y=156;
 const BAR_X=20,BAR_Y=178,BAR_W=168,BAR_H=12;
-const fieldY=[60,82,104,126,148];
+const fieldY=[60,82,104,126,148,170];
 const tempFieldY=[60,82,104,126,148,170];
 const TCOL_X=200,TCOL_W=120;
 const TBAR_X=209,TBAR_W=40,TBAR_TOP=46,TBAR_BOT=220,TBAR_H=TBAR_BOT-TBAR_TOP;
 const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484'};
-const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
+const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,WAIT_TEMP:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
 
 const cv=document.getElementById('c');
 const ctx=cv.getContext('2d');
@@ -121,6 +121,7 @@ function drawButtons(d){
     }else{
       if(d.settings_field===3) xLbl='CAL';
       else if(d.settings_field===4) xLbl='OPEN';
+      else if(d.settings_field===5){xLbl='YES';yLbl='NO';}
     }
     drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,xLbl,btn[2],2);
     drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,yLbl,btn[3],2);
@@ -196,6 +197,7 @@ function drawSettingsField(d,idx,active){
       case 2:vbuf='ST: '+d.start_pos_um.toFixed(0)+'um   ';break;
       case 3:vbuf='CAL:press CAL';break;
       case 4:vbuf='TEMP SETTINGS';break;
+      case 5:vbuf=d.wait_for_temp?'WAIT:YES     ':'WAIT:NO      ';break;
     }
     drawText(vbuf,22,fieldY[idx],2,C.YE,C.BK);
   }else{
@@ -205,6 +207,7 @@ function drawSettingsField(d,idx,active){
       case 2:vbuf='START: '+d.start_pos_um.toFixed(0)+' um';break;
       case 3:vbuf='CAL (press CAL)';break;
       case 4:vbuf='TEMP (press OPEN)';break;
+      case 5:vbuf=d.wait_for_temp?'WAIT TEMP: YES':'WAIT TEMP: NO';break;
     }
     drawText(vbuf,16,fieldY[idx],1,C.GY,C.BK);
   }
@@ -250,15 +253,13 @@ function drawSettingsScreen(d){
   }else{
     drawText('SETTINGS',Math.floor((LEFT_W-8*12)/2),STATE_Y,2,C.WH,C.BK);
     ctx.fillStyle=C.BK;ctx.fillRect(0,54,LEFT_W,6);
-    for(let i=0;i<5;i++) drawSettingsField(d,i,i===d.settings_field);
-    ctx.fillStyle=C.BK;ctx.fillRect(0,170,LEFT_W,10);
+    for(let i=0;i<6;i++) drawSettingsField(d,i,i===d.settings_field);
+    ctx.fillStyle=C.BK;ctx.fillRect(0,190,LEFT_W,4);
     if(d.dist_xa_steps>0){
-      drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,172,1,C.GR,C.BK);
+      drawText(padEnd('X-A: '+d.dist_xa_um.toFixed(1)+' um',22),6,194,1,C.GR,C.BK);
     }else{
-      drawText('NOT CALIBRATED      ',6,172,1,C.RE,C.BK);
+      drawText('NOT CALIBRATED      ',6,194,1,C.RE,C.BK);
     }
-    ctx.fillStyle=C.BK;ctx.fillRect(0,183,LEFT_W,10);
-    drawText(padEnd(d.ip||'',28),6,185,1,C.CY,C.BK);
   }
 }
 
