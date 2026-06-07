@@ -270,6 +270,7 @@ static unsigned long wifiStartMs = 0;
 static int      prevRssiBars     = -1;   // tracks last drawn WiFi icon level
 static int      prevClientCount  = -1;   // tracks last drawn WebSocket client count
 static bool     ipStripDirty    = true;  // forces IP strip redraw after updateButtons()
+static bool     runScreenDirty  = false; // forces full run-screen redraw after settings exit
 
 // ESPAsyncWebServer (mathieucarbou ≥ 3.3.x) is thread-safe: ws.textAll() and
 // webServer.begin() may be called directly from loop() on core 1.
@@ -1141,7 +1142,7 @@ void clearContent() {
 // Run screen
 // =============================================================================
 void updateRunContent() {
-  static char    prevSb[22]    = {0};
+  static char    prevSb[18]    = {0};
   static int32_t prevPosSteps  = INT32_MIN;
   static bool    prevWarning   = false;
   static char    prevSetBuf[20]= {0};
@@ -1150,6 +1151,19 @@ void updateRunContent() {
   static char    prevEndBuf[20]= {0};
   static char    prevPltBuf[20]= {0};
   static int32_t prevFilled    = -1;
+
+  if (runScreenDirty) {
+    prevSb[0]      = '\0';
+    prevPosSteps   = INT32_MIN;
+    prevWarning    = true;   // force mismatch — actual warning is computed fresh below
+    prevSetBuf[0]  = '\0';
+    prevRunBuf[0]  = '\0';
+    prevAngle      = INT_MIN;
+    prevEndBuf[0]  = '\0';
+    prevPltBuf[0]  = '\0';
+    prevFilled     = -1;
+    runScreenDirty = false;
+  }
 
   char    buf[32];
   int32_t pos_steps   = stepper->getCurrentPosition();
@@ -1171,13 +1185,14 @@ void updateRunContent() {
     default: break;
   }
   {
-    char sb[22];
+    // 16 chars × 12 px = 192 px — fits within LEFT_W=200 without overflowing into temp column
+    char sb[17];
     int  len = strlen(stateStr);
-    int  lp  = (20 - len) / 2;
+    int  lp  = (16 - len) / 2;
     int  i   = 0;
     while (i < lp)       sb[i++] = ' ';
     for (int j = 0; j < len; j++) sb[i++] = stateStr[j];
-    while (i < 20)       sb[i++] = ' ';
+    while (i < 16)       sb[i++] = ' ';
     sb[i] = '\0';
     if (strcmp(sb, prevSb) != 0) {
       tft.setTextSize(2);
@@ -1194,10 +1209,11 @@ void updateRunContent() {
   bool warning = (millis() < warningUntil);
   bool needPos = (warning != prevWarning) || (!warning && pos_steps != prevPosSteps);
   if (needPos) {
+    // 16 chars from x=6 → ends at x=198, stays within LEFT_W=200
     tft.setCursor(6 + X_OFF, POS_Y);
     if (warning) {
       tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
-      tft.print("!CAL FIRST!        ");
+      tft.print("!CAL FIRST!     ");   // 16 chars
     } else {
       tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
       tft.print("POS:");
@@ -1205,7 +1221,7 @@ void updateRunContent() {
       snprintf(buf, sizeof(buf), "%7.1f", pos_um);
       tft.print(buf);
       tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-      tft.print("um      ");
+      tft.print("um   ");              // 5 chars: total 4+7+5=16
     }
     prevPosSteps = pos_steps;
     prevWarning  = warning;
@@ -2076,6 +2092,7 @@ void loop() {
       inSettingsScreen = needSettings;
       settingsDirty    = true;
       if (needSettings) prevSettingsFieldIdx = -1;
+      else              runScreenDirty = true;  // force full run-screen redraw
     }
 
     if (inSettingsScreen) {
