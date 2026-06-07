@@ -438,9 +438,9 @@ function rssiToBars(rssi){
 }
 
 function drawWifiIcon(rssi,clients){
-  const cx=120,cy=26,bars=rssiToBars(rssi);  // cx=120 is in left column
+  const cx=100,cy=26,bars=rssiToBars(rssi);  // centred in gap (x=55..145) between buttons
   ctx.fillStyle=C.BK;ctx.fillRect(cx-14,cy-14,28,18);
-  ctx.fillStyle=C.BK;ctx.fillRect(134,18,22,10);
+  ctx.fillStyle=C.BK;ctx.fillRect(114,18,22,10);
 
   let color;
   if(bars>=3) color=C.GR;
@@ -452,7 +452,7 @@ function drawWifiIcon(rssi,clients){
     ctx.strokeStyle=color;ctx.lineWidth=1;
     ctx.beginPath();ctx.moveTo(cx-7,cy-11);ctx.lineTo(cx+7,cy-1);ctx.stroke();
     ctx.beginPath();ctx.moveTo(cx+7,cy-11);ctx.lineTo(cx-7,cy-1);ctx.stroke();
-    setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),136,20);
+    setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
     return;
   }
   // dot
@@ -466,7 +466,7 @@ function drawWifiIcon(rssi,clients){
   radii.forEach(r=>{
     ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,0);ctx.stroke();
   });
-  setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),136,20);
+  setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
 }
 
 function drawButtons(d){
@@ -502,8 +502,8 @@ function padEnd(v,n){return String(v).padEnd(n);}
 function drawRunScreen(d){
   const st=d.state||'IDLE';
   const col=STATE_COL[st]||C.GR;
-  const padded=st.padStart(Math.floor((20+st.length)/2)).padEnd(20);
-  drawText(padded,0,STATE_Y,2,col,C.BK);
+  const padded=st.padStart(Math.floor((16+st.length)/2)).padEnd(16);
+  drawText(padded,4,STATE_Y,2,col,C.BK);  // 16 chars centred: (200-192)/2=4
 
   if(d.warning_active){
     drawText('!CAL FIRST!        ',6,POS_Y,2,C.RE,C.BK);
@@ -1197,7 +1197,7 @@ void updateRunContent() {
     if (strcmp(sb, prevSb) != 0) {
       tft.setTextSize(2);
       tft.setTextColor(stateCol, ST77XX_BLACK);
-      tft.setCursor(X_OFF, STATE_Y);
+      tft.setCursor((LEFT_W - 16 * 12) / 2, STATE_Y);  // centre 192 px in 200 px left column
       tft.print(sb);
       memcpy(prevSb, sb, sizeof(sb));
     }
@@ -1625,7 +1625,7 @@ void updateSettingsContent() {
 
 // =============================================================================
 // WiFi signal icon  (between A and X buttons, above top divider)
-//   cx=120, cy=26: dot at bottom, arcs open upward
+//   cx=100, cy=26: centred in the 90 px gap (x=55..145) between button boxes
 //   bars: 0=disconnected(X), 1=poor, 2=fair, 3=good, 4=excellent
 // =============================================================================
 static int rssiToBars(int rssi) {
@@ -1651,7 +1651,7 @@ static void drawTopArc(int16_t cx, int16_t cy, int16_t r, uint16_t color) {
 }
 
 void drawWifiIcon(int bars) {
-  const int16_t cx = 120, cy = 26;
+  const int16_t cx = 100, cy = 26;  // centred between buttons (gap x=55..145, centre=100)
   tft.fillRect(cx - 14, cy - 14, 28, 18, ST77XX_BLACK);  // erase old icon
 
   uint16_t color;
@@ -2186,11 +2186,11 @@ void loop() {
       int clientCount = (int)ws.count();
       if (currBars != prevRssiBars || clientCount != prevClientCount) {
         drawWifiIcon(currBars);
-        // client count to the right of WiFi icon (icon centre cx=120, ends ~x=133)
-        tft.fillRect(134, 18, 22, 10, ST77XX_BLACK);
+        // client count to the right of WiFi icon (icon centre cx=100, ends ~x=113)
+        tft.fillRect(114, 18, 22, 10, ST77XX_BLACK);
         tft.setTextSize(1);
         tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-        tft.setCursor(136, 20);
+        tft.setCursor(116, 20);
         tft.print(clientCount);
         prevRssiBars   = currBars;
         prevClientCount = clientCount;

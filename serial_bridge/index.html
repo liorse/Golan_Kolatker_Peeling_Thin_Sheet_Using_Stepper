@@ -79,9 +79,9 @@ function rssiToBars(rssi){
 }
 
 function drawWifiIcon(rssi,clients){
-  const cx=120,cy=26,bars=rssiToBars(rssi);
+  const cx=100,cy=26,bars=rssiToBars(rssi);  // centred in gap (x=55..145) between buttons
   ctx.fillStyle=C.BK;ctx.fillRect(cx-14,cy-14,28,18);
-  ctx.fillStyle=C.BK;ctx.fillRect(134,18,22,10);
+  ctx.fillStyle=C.BK;ctx.fillRect(114,18,22,10);
 
   let color;
   if(bars>=3) color=C.GR;
@@ -93,7 +93,7 @@ function drawWifiIcon(rssi,clients){
     ctx.strokeStyle=color;ctx.lineWidth=1;
     ctx.beginPath();ctx.moveTo(cx-7,cy-11);ctx.lineTo(cx+7,cy-1);ctx.stroke();
     ctx.beginPath();ctx.moveTo(cx+7,cy-11);ctx.lineTo(cx-7,cy-1);ctx.stroke();
-    setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),136,20);
+    setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
     return;
   }
   ctx.fillStyle=color;ctx.beginPath();ctx.arc(cx,cy,2,0,Math.PI*2);ctx.fill();
@@ -105,7 +105,7 @@ function drawWifiIcon(rssi,clients){
   radii.forEach(r=>{
     ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,0);ctx.stroke();
   });
-  setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),136,20);
+  setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
 }
 
 function drawButtons(d){
@@ -141,8 +141,8 @@ function padEnd(v,n){return String(v).padEnd(n);}
 function drawRunScreen(d){
   const st=d.state||'IDLE';
   const col=STATE_COL[st]||C.GR;
-  const padded=st.padStart(Math.floor((20+st.length)/2)).padEnd(20);
-  drawText(padded,0,STATE_Y,2,col,C.BK);
+  const padded=st.padStart(Math.floor((16+st.length)/2)).padEnd(16);
+  drawText(padded,4,STATE_Y,2,col,C.BK);  // 16 chars centred: (200-192)/2=4
 
   if(d.warning_active){
     drawText('!CAL FIRST!        ',6,POS_Y,2,C.RE,C.BK);
