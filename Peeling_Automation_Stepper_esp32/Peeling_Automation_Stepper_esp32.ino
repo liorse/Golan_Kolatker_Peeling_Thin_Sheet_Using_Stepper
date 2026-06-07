@@ -176,6 +176,13 @@ float kp                 = 60.0f;  // proportional gain
 float ki                 =  0.15f; // integral gain
 float kd                 = 900.0f; // derivative gain
 
+// ---- PID runtime state (reset on activation) --------------------------------
+#define PID_BAND  4.0f             // °C — bang-bang outside, PID inside
+float         pidIntegral      = 0.0f;
+float         pidLastError     = 0.0f;
+float         pidFilteredDeriv = 0.0f;
+unsigned long lastPidRunMs     = 0;    // 0 = first tick, skip computation
+
 enum TempField { TFIELD_BACK, TFIELD_SETPOINT, TFIELD_KP, TFIELD_KI, TFIELD_KD, TFIELD_STARTSTOP };
 
 bool      inTempSubMenu    = false;
@@ -331,7 +338,7 @@ void loadPrefs() {
     kp                 = s.kp;
     ki                 = s.ki;
     kd                 = s.kd;
-    tempControlActive  = s.tempControlActive;
+    tempControlActive  = false;  // always boot with control off — safety gate
   }
 }
 
@@ -987,14 +994,24 @@ void onButtonPress(int idx) {
           if (tempField == TFIELD_BACK) {
             exitTempSubMenu();
           } else if (tempField == TFIELD_STARTSTOP) {
-            tempControlActive = true;
+            if (!tempControlActive) {
+              pidIntegral      = 0.0f;
+              pidLastError     = 0.0f;
+              pidFilteredDeriv = 0.0f;
+              lastPidRunMs     = 0;
+              tempControlActive = true;
+            }
             settingsDirty = true;
           } else {
             doTempIncrement(+1, false);
           }
         } else if (idx == IDX_Y) {
           if (tempField == TFIELD_STARTSTOP) {
-            tempControlActive = false;
+            if (tempControlActive) {
+              tempControlActive = false;
+              heaterDuty = 0;
+              ledcWrite(HEATER_PIN, 0);
+            }
             settingsDirty = true;
           } else if (tempField != TFIELD_BACK) {
             doTempIncrement(-1, false);
@@ -2013,11 +2030,15 @@ void loop() {
       case 'h': {
         // h<duty>  — set heater duty 0–255 (e.g. h128 = 50%)
         int32_t duty = Serial.parseInt();
-        duty = constrain(duty, 0, 255);
-        heaterDuty = (uint8_t)duty;
-        ledcWrite(HEATER_PIN, heaterDuty);
-        Serial.printf("{\"heater_duty\":%d,\"heater_freq_hz\":%u}\n",
-                      (int)heaterDuty, (unsigned)ledcReadFreq(HEATER_PIN));
+        if (tempControlActive) {
+          Serial.println("{\"error\":\"heater manual override blocked — temp control is active\"}");
+        } else {
+          duty = constrain(duty, 0, 255);
+          heaterDuty = (uint8_t)duty;
+          ledcWrite(HEATER_PIN, heaterDuty);
+          Serial.printf("{\"heater_duty\":%d,\"heater_freq_hz\":%u}\n",
+                        (int)heaterDuty, (unsigned)ledcReadFreq(HEATER_PIN));
+        }
         break;
       }
       case 'b': {
@@ -2160,6 +2181,47 @@ void loop() {
           lastTempC    = thermo.readFault() ? NAN : t;
           lastTempReadMs = nowMs;
           lastDrdyHighMs = nowMs;                  // successful read = chip alive
+
+          // ---- Temperature PID control ----------------------------------------
+          if (tempControlActive) {
+            // Safety cutoffs — force heater off and skip PID
+            if (isnan(lastTempC) || lastTempC >= 120.0f) {
+              heaterDuty = 0;
+              ledcWrite(HEATER_PIN, 0);
+            } else if (lastPidRunMs == 0) {
+              // First tick: record timestamp, skip computation to get a valid dt next tick
+              lastPidRunMs = nowMs;
+            } else {
+              float dt    = (nowMs - lastPidRunMs) / 1000.0f;
+              lastPidRunMs = nowMs;
+              float error = tempSetpoint - lastTempC;
+              float duty_pct;
+
+              if (error > PID_BAND) {
+                duty_pct = 100.0f;                 // bang-bang: full power
+              } else if (error < -PID_BAND) {
+                duty_pct = 0.0f;                   // bang-bang: off
+              } else {
+                // PID zone
+                float p_term = kp * error;
+
+                pidIntegral += error * dt;
+                float i_limit = 50.0f / ki;
+                pidIntegral  = constrain(pidIntegral, -i_limit, i_limit);
+                float i_term = ki * pidIntegral;
+
+                float raw_deriv     = (error - pidLastError) / dt;
+                pidFilteredDeriv    = 0.7f * pidFilteredDeriv + 0.3f * raw_deriv;
+                float d_term        = kd * pidFilteredDeriv;
+                pidLastError        = error;
+
+                duty_pct = constrain(p_term + i_term + d_term, 0.0f, 100.0f);
+              }
+
+              heaterDuty = (uint8_t)(duty_pct * 255.0f / 100.0f + 0.5f);
+              ledcWrite(HEATER_PIN, heaterDuty);
+            }
+          }
         }
         // Watchdog: DRDY stuck LOW for >3 s means chip is confused — reinit
         if (millis() - lastDrdyHighMs > 3000) {
