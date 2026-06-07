@@ -118,8 +118,8 @@
 #define TCOL_X     201   // temperature bar column start (1 px gap = vertical divider)
 
 // Temperature bar geometry (right column)
-#define TBAR_X     205   // bar left edge
-#define TBAR_W      22   // bar width in px
+#define TBAR_X     209   // bar left edge (centered with size-2 label in right column)
+#define TBAR_W      40   // bar width in px
 #define TBAR_TOP    46   // top of bar = 120 °C
 #define TBAR_BOT   220   // bottom of bar = 0 °C
 #define TBAR_H     (TBAR_BOT - TBAR_TOP)   // 174 px
@@ -384,7 +384,7 @@ const BAR_X=20,BAR_Y=178,BAR_W=168,BAR_H=12;
 const fieldY=[60,82,104,126,148];
 const tempFieldY=[60,82,104,126,148,170];
 const TCOL_X=200,TCOL_W=120;
-const TBAR_X=205,TBAR_W=22,TBAR_TOP=46,TBAR_BOT=220,TBAR_H=TBAR_BOT-TBAR_TOP;
+const TBAR_X=209,TBAR_W=40,TBAR_TOP=46,TBAR_BOT=220,TBAR_H=TBAR_BOT-TBAR_TOP;
 const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484'};
 const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
 
@@ -1345,83 +1345,152 @@ void drawSettingsHint(int) {
 // =============================================================================
 // Temperature bar column (right column, x = TCOL_X..SCREEN_W-1)
 // Called every heartbeat tick (100 ms) from both run and settings screens.
+// Dirty-state tracking: only repaints pixels that actually changed.
 // =============================================================================
 void updateTempColumn() {
-  const int labelX = TBAR_X + TBAR_W + 3;   // temperature label starts here
+  // Dirty-state: all statics start at sentinel values that force first draw.
+  static int      prevFillH      = -1;
+  static int      prevSpY        = -1;
+  static uint16_t prevBarColor   = 0;
+  static int      prevHeaterDuty = -1;
+  static int      prevCtrlStatus = -1;  // 0=off 1=heat-dim 2=heat-blink 3=stable
+  static float    prevTempDrawn  = NAN;
+  static int      prevTempLabelY = -1;
+  static bool     prevFault      = false;
 
-  // ---- Status indicator (y=4, sz=1) ----
-  tft.fillRect(TCOL_X + 1, 3, SCREEN_W - TCOL_X - 2, 14, ST77XX_BLACK);
-  tft.setTextSize(1);
+  const int labelX = TBAR_X + TBAR_W + 3;  // label column starts here (right of bar)
+  bool forceBarRedraw = false;
+
+  // ---- Ctrl status (size-2, y=2) — only repaint when state changes or blink ticks ----
+  int ctrlStatus;
   if (!tempControlActive) {
-    tft.setTextColor(0x8410, ST77XX_BLACK);
-    tft.setCursor(TCOL_X + 2, 4);
-    tft.print("CTRL:OFF");
+    ctrlStatus = 0;
+  } else if (!isnan(lastTempC) && fabsf(lastTempC - tempSetpoint) <= 2.0f) {
+    ctrlStatus = 3;
   } else {
-    bool stable = !isnan(lastTempC) && fabsf(lastTempC - tempSetpoint) <= 2.0f;
-    if (stable) {
-      tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-      tft.setCursor(TCOL_X + 2, 4);
-      tft.print("STABLE  ");
-    } else {
-      bool blink = (millis() / 500) % 2;
-      tft.setTextColor(blink ? ST77XX_YELLOW : ST77XX_BLACK, ST77XX_BLACK);
-      tft.setCursor(TCOL_X + 2, 4);
-      tft.print("CTRL: ON");
+    ctrlStatus = ((millis() / 500) % 2) ? 2 : 1;
+  }
+  if (ctrlStatus != prevCtrlStatus) {
+    tft.fillRect(TCOL_X + 1, 2, SCREEN_W - TCOL_X - 2, 16, ST77XX_BLACK);
+    tft.setTextSize(2);
+    tft.setCursor(TCOL_X + 2, 2);
+    switch (ctrlStatus) {
+      case 0: tft.setTextColor(0x8410,        ST77XX_BLACK); tft.print("OFF "); break;
+      case 1: tft.setTextColor(ST77XX_BLACK,   ST77XX_BLACK); tft.print("HEAT"); break;
+      case 2: tft.setTextColor(ST77XX_YELLOW,  ST77XX_BLACK); tft.print("HEAT"); break;
+      case 3: tft.setTextColor(ST77XX_GREEN,   ST77XX_BLACK); tft.print("OK  "); break;
     }
+    prevCtrlStatus = ctrlStatus;
   }
 
-  // ---- Power % (y=18, sz=1) ----
-  {
+  // ---- Power % (size-2, y=19) — only repaint when duty changes ----
+  int duty = (int)heaterDuty;
+  if (duty != prevHeaterDuty) {
     char buf[12];
-    int pct = (int)((float)heaterDuty / 255.0f * 100.0f + 0.5f);
-    snprintf(buf, sizeof(buf), "PWR: %3d%%", pct);
-    tft.setTextSize(1);
+    snprintf(buf, sizeof(buf), "PWR:%3d%%", (int)((float)duty / 255.0f * 100.0f + 0.5f));
+    tft.fillRect(TCOL_X + 1, 19, SCREEN_W - TCOL_X - 2, 16, ST77XX_BLACK);
+    tft.setTextSize(2);
     tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-    tft.setCursor(TCOL_X + 2, 18);
+    tft.setCursor(TCOL_X + 2, 19);
     tft.print(buf);
+    prevHeaterDuty = duty;
   }
 
-  // ---- Bar outline ----
-  tft.drawRect(TBAR_X, TBAR_TOP, TBAR_W, TBAR_H, ST77XX_CYAN);
+  // ---- Setpoint line + label — only repaint when spY changes ----
+  int spY = TBAR_BOT - 1 - (int)((float)(TBAR_H - 2) * constrain(tempSetpoint, 0.0f, 120.0f) / 120.0f);
+  if (spY != prevSpY) {
+    // Erase old line (full overhang width)
+    if (prevSpY >= 0)
+      tft.drawFastHLine(TBAR_X - 4, prevSpY, TBAR_W + 8, ST77XX_BLACK);
+    // Clear entire label column so old temp + setpoint labels are gone
+    tft.fillRect(labelX, TBAR_TOP, SCREEN_W - labelX - 1, TBAR_H, ST77XX_BLACK);
+    prevTempLabelY = -1;   // force temp label redraw with updated collision check
+    prevTempDrawn  = NAN;
+    forceBarRedraw = true; // restore bar fill pixels overwritten by line erase
 
-  if (isnan(lastTempC)) {
-    // Fault: red fill + "FLT" label
-    tft.fillRect(TBAR_X + 1, TBAR_TOP + 1, TBAR_W - 2, TBAR_H - 2, ST77XX_RED);
-    tft.setTextSize(1);
-    tft.setTextColor(ST77XX_WHITE, ST77XX_RED);
-    tft.setCursor(TBAR_X + 2, TBAR_TOP + TBAR_H / 2 - 4);
-    tft.print("FLT");
-    // Clear label area
-    tft.fillRect(labelX, TBAR_TOP, SCREEN_W - labelX, TBAR_H, ST77XX_BLACK);
-  } else {
-    float clampedT = constrain(lastTempC, 0.0f, 120.0f);
-    int fillH = (int)((float)(TBAR_H - 2) * clampedT / 120.0f);
-    int fillY = TBAR_BOT - 1 - fillH;
-    bool stable = tempControlActive && fabsf(lastTempC - tempSetpoint) <= 2.0f;
+    // Draw new setpoint line (white, extends 4 px beyond bar each side)
+    tft.drawFastHLine(TBAR_X - 4, spY, TBAR_W + 8, ST77XX_WHITE);
+
+    // Setpoint label: value above the line, right of bar
+    int spLabelY = constrain(spY - 17, TBAR_TOP, TBAR_BOT - 16);
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%dC", (int)roundf(tempSetpoint));
+    tft.setTextSize(2);
+    tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    tft.setCursor(labelX, spLabelY);
+    tft.print(buf);
+
+    prevSpY = spY;
+  }
+
+  // ---- Fault transition ----
+  bool fault = isnan(lastTempC);
+  if (fault != prevFault) {
+    forceBarRedraw = true;
+    prevFault      = fault;
+    prevFillH      = -1;
+    prevTempLabelY = -1;
+    prevTempDrawn  = NAN;
+  }
+
+  // ---- Bar fill ----
+  if (!fault) {
+    float    clampedT = constrain(lastTempC, 0.0f, 120.0f);
+    int      fillH    = (int)((float)(TBAR_H - 2) * clampedT / 120.0f);
+    int      fillY    = TBAR_BOT - 1 - fillH;
+    bool     stable   = tempControlActive && fabsf(lastTempC - tempSetpoint) <= 2.0f;
     uint16_t barColor = stable ? ST77XX_GREEN : ST77XX_RED;
 
-    // Unfilled portion
-    if (fillH < TBAR_H - 2)
-      tft.fillRect(TBAR_X + 1, TBAR_TOP + 1, TBAR_W - 2, TBAR_H - 2 - fillH, ST77XX_BLACK);
-    // Filled portion
-    if (fillH > 0)
-      tft.fillRect(TBAR_X + 1, fillY, TBAR_W - 2, fillH, barColor);
-
-    // Temperature label (to the right of bar, floats near fill top)
-    {
-      char buf[8];
-      snprintf(buf, sizeof(buf), "%5.1f", lastTempC);
-      int lY = constrain(fillY - 1, TBAR_TOP, TBAR_BOT - 8);
-      tft.fillRect(labelX, TBAR_TOP, SCREEN_W - labelX - 1, TBAR_H, ST77XX_BLACK);
-      tft.setTextSize(1);
-      tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-      tft.setCursor(labelX, lY);
-      tft.print(buf);
+    if (fillH != prevFillH || barColor != prevBarColor || forceBarRedraw) {
+      tft.drawRect(TBAR_X, TBAR_TOP, TBAR_W, TBAR_H, ST77XX_CYAN);
+      if (fillH < TBAR_H - 2)
+        tft.fillRect(TBAR_X + 1, TBAR_TOP + 1, TBAR_W - 2, TBAR_H - 2 - fillH, ST77XX_BLACK);
+      if (fillH > 0)
+        tft.fillRect(TBAR_X + 1, fillY, TBAR_W - 2, fillH, barColor);
+      // Restore setpoint line that fill may have overwritten
+      tft.drawFastHLine(TBAR_X - 4, spY, TBAR_W + 8, ST77XX_WHITE);
+      prevFillH    = fillH;
+      prevBarColor = barColor;
     }
 
-    // Setpoint line (white horizontal, ±4 px beyond bar edges)
-    int spY = TBAR_BOT - 1 - (int)((float)(TBAR_H - 2) * constrain(tempSetpoint, 0.0f, 120.0f) / 120.0f);
-    tft.drawFastHLine(TBAR_X - 4, spY, TBAR_W + 8, ST77XX_WHITE);
+    // ---- Temp label (size-2, floats right of bar near fill top) ----
+    char tBuf[8];
+    snprintf(tBuf, sizeof(tBuf), "%5.1f", lastTempC);
+    bool needsRedraw = (prevTempLabelY < 0);
+    if (!needsRedraw) {
+      char pBuf[8];
+      snprintf(pBuf, sizeof(pBuf), "%5.1f", prevTempDrawn);
+      needsRedraw = (strcmp(tBuf, pBuf) != 0);
+    }
+    if (needsRedraw) {
+      // Position: just above fill top; pushed below setpoint line if too close
+      int lY = constrain(fillY - 17, TBAR_TOP, TBAR_BOT - 16);
+      if (abs(lY - spY) < 12)
+        lY = constrain(spY + 2, TBAR_TOP, TBAR_BOT - 16);
+
+      if (prevTempLabelY >= 0 && prevTempLabelY != lY)
+        tft.fillRect(labelX, prevTempLabelY, SCREEN_W - labelX - 1, 16, ST77XX_BLACK);
+
+      tft.setTextSize(2);
+      tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+      tft.setCursor(labelX, lY);
+      tft.print(tBuf);
+      prevTempDrawn  = lastTempC;
+      prevTempLabelY = lY;
+    }
+  } else {
+    // Fault: red fill + "FLT"
+    if (forceBarRedraw) {
+      tft.drawRect(TBAR_X, TBAR_TOP, TBAR_W, TBAR_H, ST77XX_CYAN);
+      tft.fillRect(TBAR_X + 1, TBAR_TOP + 1, TBAR_W - 2, TBAR_H - 2, ST77XX_RED);
+      tft.setTextSize(1);
+      tft.setTextColor(ST77XX_WHITE, ST77XX_RED);
+      tft.setCursor(TBAR_X + 2, TBAR_TOP + TBAR_H / 2 - 4);
+      tft.print("FLT");
+      tft.fillRect(labelX, TBAR_TOP, SCREEN_W - labelX, TBAR_H, ST77XX_BLACK);
+      // Restore setpoint line over fault fill
+      tft.drawFastHLine(TBAR_X - 4, spY, TBAR_W + 8, ST77XX_WHITE);
+    }
   }
 }
 
