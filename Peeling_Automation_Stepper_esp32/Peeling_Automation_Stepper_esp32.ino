@@ -1451,7 +1451,7 @@ void drawTempSubField(int idx, bool active) {
 }
 
 void drawSettingsHint(int) {
-  tft.fillRect(0, 54, LEFT_W, 12, ST77XX_BLACK);
+  tft.fillRect(0, 52, LEFT_W, 8, ST77XX_BLACK);
 }
 
 
