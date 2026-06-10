@@ -911,7 +911,9 @@ void disableMotor() {
 }
 
 void abortAndIdle() {
-  stepper->forceStop();
+  if (stepper->isRunning()) {
+    stepper->forceStop();
+  }
   disableMotor();
   startPeelAt = 0;
   if (tempCtrlAutoEnabled) {
@@ -936,6 +938,7 @@ void startMoveToStart() {
   }
   appState = MOVING_TO_START;
   enableMotor();
+  stepper->setSpeedInHz(calSpeedHz() + 1); // Force FastAccelStepper ramp update
   stepper->setSpeedInHz(calSpeedHz());
   stepper->moveTo(umToSteps(start_pos_um));
   startPeelAt = 0;
@@ -952,6 +955,7 @@ void startPeeling() {
 void startHoming() {
   appState = HOMING;
   enableMotor();
+  stepper->setSpeedInHz(calSpeedHz() + 1); // Force FastAccelStepper ramp update
   stepper->setSpeedInHz(calSpeedHz());
   stepper->runBackward();
 }
@@ -959,6 +963,7 @@ void startHoming() {
 void startCal() {
   appState = CAL_HOMING;
   enableMotor();
+  stepper->setSpeedInHz(calSpeedHz() + 1); // Force FastAccelStepper ramp update
   stepper->setSpeedInHz(calSpeedHz());
   stepper->runBackward();
 }
