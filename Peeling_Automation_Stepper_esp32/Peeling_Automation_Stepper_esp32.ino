@@ -1780,8 +1780,8 @@ void setup() {
   thermo.setConversionMode(MAX31856_CONTINUOUS);
   lastDrdyHighMs = millis();   // prevent false watchdog trigger during boot
 
-  // Heater MOSFET — LEDC 10 Hz, 8-bit, starts off
-  bool heaterOk = ledcAttach(HEATER_PIN, 10, 8);
+  // Heater MOSFET — LEDC 1 kHz, 8-bit, starts off (10Hz is too low for ESP32 hardware timer divider and causes interrupt/timer stalls!)
+  bool heaterOk = ledcAttach(HEATER_PIN, 1000, 8);
   ledcWrite(HEATER_PIN, 0);
   Serial.printf("[heater] ledcAttach GPIO%d: %s\n", HEATER_PIN, heaterOk ? "OK" : "FAILED");
 
@@ -1919,7 +1919,22 @@ static void sendWsJson() {
     wifiIpStr
   );
 
-  ws.textAll(json);
+  if (Serial) {
+    if (Serial.availableForWrite() >= strlen(json)) {
+      Serial.println(json);
+    }
+  }
+  ws.cleanupClients();
+  if (ws.count() > 0) {
+    bool canSend = true;
+    for (AsyncWebSocketClient& c : ws.getClients()) {
+      if (c.queueIsFull()) {
+        canSend = false;
+        break;
+      }
+    }
+    if (canSend) ws.textAll(json);
+  }
 }
 
 
