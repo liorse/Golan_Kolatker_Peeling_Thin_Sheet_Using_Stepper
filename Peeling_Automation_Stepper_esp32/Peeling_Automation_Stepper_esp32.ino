@@ -1476,9 +1476,19 @@ void updateTempColumn() {
 
   // ---- Ctrl status (size-2, y=2) — only repaint when state changes or blink ticks ----
   int ctrlStatus;
+  static bool stableState = false;
+  
+  if (!tempControlActive || isnan(lastTempC)) {
+    stableState = false;
+  } else {
+    float err = fabsf(lastTempC - tempSetpoint);
+    if (stableState && err > 3.0f) stableState = false;
+    else if (!stableState && err <= 1.5f) stableState = true;
+  }
+
   if (!tempControlActive) {
     ctrlStatus = 0;
-  } else if (!isnan(lastTempC) && fabsf(lastTempC - tempSetpoint) <= 2.0f) {
+  } else if (stableState) {
     ctrlStatus = 3;
   } else {
     ctrlStatus = ((millis() / 500) % 2) ? 2 : 1;
@@ -1551,8 +1561,7 @@ void updateTempColumn() {
     float    clampedT = constrain(lastTempC, 0.0f, 120.0f);
     int      fillH    = (int)((float)(TBAR_H - 2) * clampedT / 120.0f);
     int      fillY    = TBAR_BOT - 1 - fillH;
-    bool     stable   = tempControlActive && fabsf(lastTempC - tempSetpoint) <= 2.0f;
-    uint16_t barColor = stable ? ST77XX_GREEN : ST77XX_RED;
+    uint16_t barColor = stableState ? ST77XX_GREEN : ST77XX_RED;
 
     bool needFullBar = (barColor != prevBarColor) || forceBarRedraw || (prevFillH < 0);
     if (needFullBar) {
