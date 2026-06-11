@@ -43,7 +43,7 @@
 //   GPIO 16  — TFT_BL
 //   GPIO 21  — MAX31856 CS  (thermocouple amplifier)
 //   GPIO 22  — MAX31856 DRDY (data-ready; LOW when conversion complete)
-//   GPIO 32  — HEATER_PIN (LEDC ch0, 1 kHz PWM → N-channel MOSFET gate)
+//   GPIO 32  — HEATER_PIN (LEDC auto-ch, 1 kHz PWM → N-channel MOSFET gate)
 //
 // UNIT CONVERSION
 // ---------------
@@ -66,9 +66,10 @@
 //
 // SERIAL INTERFACE  (115200 baud)
 // --------------------------------
-//   Commands: 'm'<int32> move to step pos, 's' stop, 'v'<int> set Hz
-//   Heartbeat every 100 ms:
-//     {"state":N,"position":N,"speed":N,"pos_um":F,"speed_um":F,"angle":N,"spr":N}
+//   Commands: 'm'<int32> move to step pos, 's' stop, 'v'<int> set Hz,
+//             'h'<0-255> set heater duty, 'b'<A|B|X|Y><1|0> virtual button press/release
+//   Heartbeat every 100 ms: JSON with state, position, speed, temperatures, heater,
+//     WiFi/WebSocket info, and all settings (see sendWsJson() for full field list)
 // =============================================================================
 
 #include <FastAccelStepper.h>
@@ -107,7 +108,7 @@
 #define MAX_CS    21
 #define MAX_DRDY  22
 
-// ---- Heater MOSFET (LEDC, 10 Hz, 8-bit) ------------------------------------
+// ---- Heater MOSFET (LEDC, 1 kHz, 8-bit) ------------------------------------
 #define HEATER_PIN  32
 
 // ---- Display geometry -------------------------------------------------------
@@ -2059,7 +2060,7 @@ void loop() {
       updateButtons();
     }
   } else if (appState == CAL_RUNNING) {
-    if (yNewPress) {                            // far-end switch: edge+debounce guards against motor-startup transients on GPIO36
+    if (yNewPress) {                            // far-end switch (GPIO 15): edge+debounce guards against motor-startup transients
       dist_xa_steps = stepper->getCurrentPosition();
       stepper->forceStop();
       disableMotor();
