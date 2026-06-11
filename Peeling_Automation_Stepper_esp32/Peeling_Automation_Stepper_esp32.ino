@@ -28,10 +28,16 @@
 //   GPIO 26  — ENA+ (active-high; ENA- tied to GND)
 //   GPIO 25  — DIR+ (DIR- tied to GND)
 //   GPIO 27  — PUL+ (PUL- tied to GND)
+//   [BUTTONS mode]
 //   GPIO  4  — BTN_A  (UI: start/stop; settings: navigate up)
 //   GPIO 33  — BTN_B  (UI: settings/home; settings: navigate down / exit+save)
 //   GPIO 14  — BTN_X  (UI: settings: increment/CAL trigger; no-op outside settings)
 //   GPIO 12  — BTN_Y  (UI: settings: decrement; no-op outside settings)
+//   [ROTARY mode — EC11 encoder replaces the 4 buttons]
+//   GPIO 14  — ENC_CLK  (was BTN_X)
+//   GPIO  4  — ENC_DT   (was BTN_A)
+//   GPIO 33  — ENC_SW   push button (was BTN_B)
+//   GPIO 12  — unused   (was BTN_Y)
 //   GPIO 13  — LIMIT_SW_X (home/X limit switch, active-low)
 //   GPIO 15  — LIMIT_SW_Y (far/Y limit switch, active-low, INPUT_PULLUP)
 //   GPIO  2  — TFT_RST
@@ -85,6 +91,11 @@
 #include <ESPmDNS.h>
 #include "wifi_credentials.h"
 
+// ---- Input mode -------------------------------------------------------------
+#define ROTARY  1   // Rotary encoder EC11 + push button
+#define BUTTONS 2   // Four discrete push-buttons
+#define INPUT_MODE  ROTARY   // change to BUTTONS for 4-button mode
+
 // ---- Stepper driver pins ----------------------------------------------------
 #define enablePinStepper  26
 #define dirPinStepper     25
@@ -97,10 +108,19 @@
 #define TFT_BL   16
 
 // ---- Button pins (active-low, INPUT_PULLUP) ---------------------------------
+//   Used in BUTTONS mode for physical input.
+//   In ROTARY mode these GPIOs are reassigned to the encoder (see below);
+//   the IDX_A/B/X/Y indices are still used for the virtual-button (WiFi/serial) path.
 #define BTN_A    4   // UI: start / stop; in settings: navigate up
 #define BTN_B   33   // UI: settings / home; in settings: navigate down / exit+save
 #define BTN_X   14   // UI: in settings: increment (+) or trigger CAL; no-op outside settings
 #define BTN_Y   12   // UI: in settings: decrement (−); no-op outside settings  GPIO12: strapping pin — WROOM pull-down holds it LOW at boot (safe)
+
+// ---- Rotary encoder EC11 pins (ROTARY mode only) ----------------------------
+//   Reuses the button GPIOs; GPIO 12 (was BTN_Y) left unused.
+#define ENC_CLK  14   // CLK  (was BTN_X)
+#define ENC_DT    4   // DT   (was BTN_A)
+#define ENC_SW   33   // SW push-button (was BTN_B)
 #define LIMIT_SW_X 13  // home/X limit switch (active-low, INPUT_PULLUP)
 #define LIMIT_SW_Y 15  // far/Y  limit switch (active-low, INPUT_PULLUP)
 
@@ -225,7 +245,7 @@ enum AppState {
 };
 AppState appState = IDLE;
 
-enum SettingsField { FIELD_SPEED, FIELD_ANGLE, FIELD_START, FIELD_CAL, FIELD_TEMP, FIELD_WAIT_TEMP };
+enum SettingsField { FIELD_SPEED, FIELD_ANGLE, FIELD_START, FIELD_CAL, FIELD_TEMP, FIELD_WAIT_TEMP, FIELD_EXIT };
 SettingsField settingsField = FIELD_SPEED;
 
 // ---- User-configurable values -----------------------------------------------
@@ -256,6 +276,18 @@ unsigned long btnRepeatAt[4]  = {};
 
 const unsigned long LONG_PRESS_MS = 500;
 const unsigned long REPEAT_MS     = 100;
+
+// ---- Rotary encoder state (ROTARY mode only) --------------------------------
+#if INPUT_MODE == ROTARY
+bool          encClkPrev      = false;   // last raw CLK level (true = LOW with pullup)
+unsigned long encClkStableAt  = 0;       // millis() when CLK last changed (for debounce)
+bool          encClkStable    = false;   // last debounced CLK level
+bool          encSwDown       = false;   // SW push button currently held
+unsigned long encSwPressAt    = 0;       // millis() when SW was pressed
+int           rotaryMainFocus = 0;       // 0 = A (GO/STOP), 1 = B (SET/HOME) on main screen
+bool          rotaryEditMode  = false;   // true = editing a field value; false = browsing fields
+const unsigned long ENC_DEBOUNCE_MS = 5;
+#endif
 
 // ---- Limit switch edge detection (for safety abort in moving states) --------
 bool          limitXPrev     = false;
@@ -896,6 +928,119 @@ void cycleTempField() {
 
 
 // =============================================================================
+// Rotary encoder action handlers (ROTARY mode only)
+// =============================================================================
+#if INPUT_MODE == ROTARY
+
+void onRotaryStep(int dir) {
+  if (appState == SETTINGS) {
+    if (rotaryEditMode) {
+      if (inTempSubMenu) doTempIncrement(dir, false);
+      else               doIncrement(dir, false);
+    } else {
+      // Browse mode: move between fields (circular)
+      if (inTempSubMenu) {
+        const int n = (int)TFIELD_STARTSTOP + 1;
+        int cur = (int)tempField;
+        cur = ((cur + dir) % n + n) % n;
+        tempField = (TempField)cur;
+        settingsDirty = true;
+      } else {
+        const int n = (int)FIELD_EXIT + 1;   // 7 fields (SPEED..EXIT)
+        int cur = (int)settingsField;
+        cur = ((cur + dir) % n + n) % n;
+        settingsField = (SettingsField)cur;
+        settingsDirty = true;
+      }
+    }
+  } else {
+    // Main / moving screen: cycle between button A and B
+    rotaryMainFocus = (rotaryMainFocus + dir + 2) % 2;
+  }
+}
+
+void onRotaryPush() {
+  if (appState == SETTINGS) {
+    if (rotaryEditMode) {
+      rotaryEditMode = false;
+      settingsDirty  = true;
+    } else {
+      if (inTempSubMenu) {
+        switch (tempField) {
+          case TFIELD_BACK:
+            exitTempSubMenu();
+            break;
+          case TFIELD_STARTSTOP:
+            if (tempControlActive) {
+              tempControlActive = false;
+              heaterDuty = 0;
+              ledcWrite(HEATER_PIN, 0);
+            } else {
+              pidIntegral = 0.0f; pidLastError = 0.0f;
+              pidFilteredDeriv = 0.0f; lastPidRunMs = 0;
+              tempControlActive = true;
+            }
+            settingsDirty = true;
+            break;
+          default:
+            rotaryEditMode = true;
+            settingsDirty  = true;
+            break;
+        }
+      } else {
+        switch (settingsField) {
+          case FIELD_CAL:
+            startCal();
+            rotaryMainFocus = 0;
+            rotaryEditMode  = false;
+            break;
+          case FIELD_TEMP:
+            enterTempSubMenu();
+            break;
+          case FIELD_WAIT_TEMP:
+            waitForTemp   = !waitForTemp;
+            settingsDirty = true;
+            break;
+          case FIELD_EXIT:
+            saveSettings();
+            appState = IDLE;
+            rotaryMainFocus = 0;
+            rotaryEditMode  = false;
+            runScreenDirty  = true;
+            break;
+          default:
+            rotaryEditMode = true;
+            settingsDirty  = true;
+            break;
+        }
+      }
+    }
+  } else if (appState == IDLE) {
+    if (rotaryMainFocus == 0) {
+      onButtonPress(IDX_A);   // GO
+    } else {
+      if (stepper->getCurrentPosition() == 0) {
+        appState             = SETTINGS;
+        settingsField        = FIELD_SPEED;
+        settingsDirty        = true;
+        justEnteredSettings  = true;
+        rotaryEditMode       = false;
+        prevSettingsFieldIdx = -1;
+      } else {
+        startHoming();
+        rotaryMainFocus = 0;
+      }
+    }
+  } else {
+    // Moving / peeling / homing states: push = abort
+    abortAndIdle();
+  }
+}
+
+#endif  // INPUT_MODE == ROTARY
+
+
+// =============================================================================
 // Motor helpers
 // =============================================================================
 void enableMotor() {
@@ -924,6 +1069,10 @@ void abortAndIdle() {
     tempCtrlAutoEnabled = false;
   }
   appState = IDLE;
+#if INPUT_MODE == ROTARY
+  rotaryMainFocus = 0;
+  rotaryEditMode  = false;
+#endif
 }
 
 void startMoveToStart() {
@@ -999,10 +1148,14 @@ void onButtonPress(int idx) {
         }
       } else if (idx == IDX_B) {
         if (stepper->getCurrentPosition() == 0) {
-          appState            = SETTINGS;
-          settingsField       = FIELD_SPEED;
-          settingsDirty       = true;
-          justEnteredSettings = true;
+          appState             = SETTINGS;
+          settingsField        = FIELD_SPEED;
+          settingsDirty        = true;
+          justEnteredSettings  = true;
+          prevSettingsFieldIdx = -1;
+#if INPUT_MODE == ROTARY
+          rotaryEditMode = false;
+#endif
         } else {
           startHoming();
         }
@@ -1138,9 +1291,12 @@ void onButtonRepeat(int idx) {
 // =============================================================================
 // Display helpers
 // =============================================================================
-void drawButtonBox(int16_t x, int16_t y, const char *label, bool pressed, uint8_t sz = 2) {
-  uint16_t bg = pressed ? ST77XX_WHITE : ST77XX_BLACK;
-  uint16_t fg = pressed ? ST77XX_BLACK : ST77XX_CYAN;
+// focused = true draws a solid cyan background (rotary highlight); pressed = white bg
+void drawButtonBox(int16_t x, int16_t y, const char *label, bool pressed, bool focused = false, uint8_t sz = 2) {
+  uint16_t bg, fg;
+  if      (pressed) { bg = ST77XX_WHITE; fg = ST77XX_BLACK; }
+  else if (focused) { bg = ST77XX_CYAN;  fg = ST77XX_BLACK; }
+  else              { bg = ST77XX_BLACK; fg = ST77XX_CYAN;  }
   tft.fillRoundRect(x, y, BTN_W, BTN_H, 4, bg);
   tft.drawRoundRect(x, y, BTN_W, BTN_H, 4, ST77XX_CYAN);
   tft.setTextSize(sz);
@@ -1155,6 +1311,27 @@ void drawButtonBox(int16_t x, int16_t y, const char *label, bool pressed, uint8_
 void updateButtons() {
   char aLbl[8], bLbl[8];
 
+#if INPUT_MODE == ROTARY
+  if (appState == SETTINGS) {
+    // In settings, buttons are empty (navigation via encoder field highlight)
+    drawButtonBox(BTN_LEFT_X,  BTN_TOP_Y, "", false);
+    drawButtonBox(BTN_LEFT_X,  BTN_BOT_Y, "", false);
+    drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, "", false);
+    drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, "", false);
+  } else {
+    if (appState == IDLE) {
+      strcpy(aLbl, dist_xa_steps > 0 ? "GO" : "!CAL");
+      strcpy(bLbl, stepper->getCurrentPosition() == 0 ? "SET" : "HOME");
+    } else {
+      strcpy(aLbl, "STOP");
+      strcpy(bLbl, "----");
+    }
+    drawButtonBox(BTN_LEFT_X, BTN_TOP_Y, aLbl, false, rotaryMainFocus == 0);
+    drawButtonBox(BTN_LEFT_X, BTN_BOT_Y, bLbl, false, rotaryMainFocus == 1);
+    tft.fillRoundRect(BTN_RIGHT_X, BTN_TOP_Y, BTN_W, BTN_H, 4, ST77XX_BLACK);
+    tft.fillRoundRect(BTN_RIGHT_X, BTN_BOT_Y, BTN_W, BTN_H, 4, ST77XX_BLACK);
+  }
+#else
   if (appState == SETTINGS) {
     drawButtonBox(BTN_LEFT_X,  BTN_TOP_Y, "UP",   btnDown[IDX_A]);
     drawButtonBox(BTN_LEFT_X,  BTN_BOT_Y, "DOWN", btnDown[IDX_B]);
@@ -1181,12 +1358,12 @@ void updateButtons() {
       strcpy(aLbl, "STOP");
       strcpy(bLbl, "----");
     }
-    // Physical layout (setRotation 2): A=top-left, B=bottom-left, X/Y right side (blank)
     drawButtonBox(BTN_LEFT_X, BTN_TOP_Y, aLbl, btnDown[IDX_A]);
     drawButtonBox(BTN_LEFT_X, BTN_BOT_Y, bLbl, btnDown[IDX_B]);
     tft.fillRoundRect(BTN_RIGHT_X, BTN_TOP_Y, BTN_W, BTN_H, 4, ST77XX_BLACK);
     tft.fillRoundRect(BTN_RIGHT_X, BTN_BOT_Y, BTN_W, BTN_H, 4, ST77XX_BLACK);
   }
+#endif
   ipStripDirty = true;  // button backgrounds may have overwritten IP text
 }
 
@@ -1380,9 +1557,36 @@ void updateRunContent() {
 // =============================================================================
 // Settings screen
 // =============================================================================
-void drawSettingsField(int idx, bool active) {
-  // 6 fields, 22 px apart; last field ends at 170+20=190, cal status at 192.
-  const int fieldY[6] = { 60, 82, 104, 126, 148, 170 };
+// active: false=inactive, true=focused/active
+// inEdit: only relevant in ROTARY mode — true draws yellow bg to indicate value editing
+void drawSettingsField(int idx, bool active, bool inEdit = false) {
+  // 7th slot (idx=6) is FIELD_EXIT at y=192, used in ROTARY mode only
+  const int fieldY[7] = { 60, 82, 104, 126, 148, 170, 192 };
+  if (idx > 6) return;
+
+#if INPUT_MODE == ROTARY
+  uint16_t rowBg = ST77XX_BLACK;
+  if (active) rowBg = inEdit ? ST77XX_YELLOW : ST77XX_CYAN;
+  tft.fillRect(0, fieldY[idx], LEFT_W, 20, rowBg);
+  uint16_t fg = (active) ? ST77XX_BLACK : (uint16_t)0x8410;
+  uint8_t  sz = active ? 2 : 1;
+  tft.setTextSize(sz);
+  tft.setTextColor(fg, rowBg);
+  char vbuf[24];
+  int cx = active ? 6 : 16;
+  tft.setCursor(cx, fieldY[idx]);
+  switch (idx) {
+    case FIELD_ANGLE:     snprintf(vbuf, sizeof(vbuf), active ? "ANG: %2d deg  " : "ANG: %d deg",     angle_deg);                              break;
+    case FIELD_SPEED:     snprintf(vbuf, sizeof(vbuf), active ? "SPD:%.1fum/s " : "SPD: %.1f um/s",  speed_um_s);                             break;
+    case FIELD_START:     snprintf(vbuf, sizeof(vbuf), active ? "ST: %.0fum   " : "START: %.0f um",  start_pos_um);                           break;
+    case FIELD_CAL:       snprintf(vbuf, sizeof(vbuf), active ? "CAL:press [>]" : "CAL (press [>])");                                         break;
+    case FIELD_TEMP:      snprintf(vbuf, sizeof(vbuf), active ? "TEMP SETTINGS" : "TEMP (press [>])");                                        break;
+    case FIELD_WAIT_TEMP: snprintf(vbuf, sizeof(vbuf), active ? (waitForTemp ? "WAIT:YES     " : "WAIT:NO      ") : (waitForTemp ? "WAIT TEMP: YES" : "WAIT TEMP: NO")); break;
+    case FIELD_EXIT:      snprintf(vbuf, sizeof(vbuf), active ? "EXIT (save)  " : "EXIT (save)");                                             break;
+    default: return;
+  }
+  tft.print(vbuf);
+#else
   tft.fillRect(0, fieldY[idx], LEFT_W, 20, ST77XX_BLACK);
   char vbuf[24];
   if (active) {
@@ -1392,12 +1596,12 @@ void drawSettingsField(int idx, bool active) {
     tft.print(">");
     tft.setCursor(22, fieldY[idx]);
     switch (idx) {
-      case FIELD_ANGLE:     snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg  ", angle_deg);                       break;
-      case FIELD_SPEED:     snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s ", speed_um_s);                       break;
-      case FIELD_START:     snprintf(vbuf, sizeof(vbuf), "ST: %.0fum   ", start_pos_um);                     break;
-      case FIELD_CAL:       snprintf(vbuf, sizeof(vbuf), "CAL:press CAL");                                   break;
-      case FIELD_TEMP:      snprintf(vbuf, sizeof(vbuf), "TEMP SETTINGS");                                   break;
-      case FIELD_WAIT_TEMP: snprintf(vbuf, sizeof(vbuf), waitForTemp ? "WAIT:YES     " : "WAIT:NO      ");   break;
+      case FIELD_ANGLE:     snprintf(vbuf, sizeof(vbuf), "ANG: %2d deg  ", angle_deg);                      break;
+      case FIELD_SPEED:     snprintf(vbuf, sizeof(vbuf), "SPD:%.1fum/s ", speed_um_s);                      break;
+      case FIELD_START:     snprintf(vbuf, sizeof(vbuf), "ST: %.0fum   ", start_pos_um);                    break;
+      case FIELD_CAL:       snprintf(vbuf, sizeof(vbuf), "CAL:press CAL");                                  break;
+      case FIELD_TEMP:      snprintf(vbuf, sizeof(vbuf), "TEMP SETTINGS");                                  break;
+      case FIELD_WAIT_TEMP: snprintf(vbuf, sizeof(vbuf), waitForTemp ? "WAIT:YES     " : "WAIT:NO      ");  break;
     }
     tft.print(vbuf);
   } else {
@@ -1405,21 +1609,42 @@ void drawSettingsField(int idx, bool active) {
     tft.setTextColor(0x8410, ST77XX_BLACK);
     tft.setCursor(16, fieldY[idx]);
     switch (idx) {
-      case FIELD_ANGLE:     snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);                      break;
-      case FIELD_SPEED:     snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);                  break;
-      case FIELD_START:     snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um);                break;
-      case FIELD_CAL:       snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");                             break;
-      case FIELD_TEMP:      snprintf(vbuf, sizeof(vbuf), "TEMP (press OPEN)");                           break;
+      case FIELD_ANGLE:     snprintf(vbuf, sizeof(vbuf), "ANG: %d deg", angle_deg);                         break;
+      case FIELD_SPEED:     snprintf(vbuf, sizeof(vbuf), "SPD: %.1f um/s", speed_um_s);                     break;
+      case FIELD_START:     snprintf(vbuf, sizeof(vbuf), "START: %.0f um", start_pos_um);                   break;
+      case FIELD_CAL:       snprintf(vbuf, sizeof(vbuf), "CAL (press CAL)");                                break;
+      case FIELD_TEMP:      snprintf(vbuf, sizeof(vbuf), "TEMP (press OPEN)");                              break;
       case FIELD_WAIT_TEMP: snprintf(vbuf, sizeof(vbuf), waitForTemp ? "WAIT TEMP: YES" : "WAIT TEMP: NO"); break;
     }
     tft.print(vbuf);
   }
+#endif
 }
 
-void drawTempSubField(int idx, bool active) {
+void drawTempSubField(int idx, bool active, bool inEdit = false) {
   const int fieldY[6] = { 60, 82, 104, 126, 148, 170 };
-  tft.fillRect(0, fieldY[idx], LEFT_W, 20, ST77XX_BLACK);
   char vbuf[24];
+
+#if INPUT_MODE == ROTARY
+  uint16_t rowBg = ST77XX_BLACK;
+  if (active) rowBg = inEdit ? ST77XX_YELLOW : ST77XX_CYAN;
+  tft.fillRect(0, fieldY[idx], LEFT_W, 20, rowBg);
+  uint16_t fg = active ? (uint16_t)ST77XX_BLACK : (uint16_t)0x8410;
+  uint8_t  sz = active ? 2 : 1;
+  tft.setTextSize(sz);
+  tft.setTextColor(fg, rowBg);
+  tft.setCursor(active ? 6 : 16, fieldY[idx]);
+  switch (idx) {
+    case TFIELD_BACK:      snprintf(vbuf, sizeof(vbuf), active ? "< BACK       " : "< BACK");                                           break;
+    case TFIELD_SETPOINT:  snprintf(vbuf, sizeof(vbuf), active ? "SP: %5.1f C  " : "SP: %.1f C",   tempSetpoint);                       break;
+    case TFIELD_KP:        snprintf(vbuf, sizeof(vbuf), active ? "Kp: %5.1f    " : "Kp: %.1f",     kp);                                break;
+    case TFIELD_KI:        snprintf(vbuf, sizeof(vbuf), active ? "Ki: %5.2f    " : "Ki: %.2f",     ki);                                break;
+    case TFIELD_KD:        snprintf(vbuf, sizeof(vbuf), active ? "Kd: %5.0f    " : "Kd: %.0f",     kd);                                break;
+    case TFIELD_STARTSTOP: snprintf(vbuf, sizeof(vbuf), active ? (tempControlActive ? "CTRL: ON     " : "CTRL: OFF    ") : (tempControlActive ? "CTRL: ON" : "CTRL: OFF")); break;
+  }
+  tft.print(vbuf);
+#else
+  tft.fillRect(0, fieldY[idx], LEFT_W, 20, ST77XX_BLACK);
   if (active) {
     tft.setTextSize(2);
     tft.setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
@@ -1427,12 +1652,12 @@ void drawTempSubField(int idx, bool active) {
     tft.print(">");
     tft.setCursor(22, fieldY[idx]);
     switch (idx) {
-      case TFIELD_BACK:      snprintf(vbuf, sizeof(vbuf), "< BACK       ");                              break;
-      case TFIELD_SETPOINT:  snprintf(vbuf, sizeof(vbuf), "SP: %5.1f C  ", tempSetpoint);               break;
-      case TFIELD_KP:        snprintf(vbuf, sizeof(vbuf), "Kp: %5.1f    ", kp);                         break;
-      case TFIELD_KI:        snprintf(vbuf, sizeof(vbuf), "Ki: %5.2f    ", ki);                          break;
-      case TFIELD_KD:        snprintf(vbuf, sizeof(vbuf), "Kd: %5.0f    ", kd);                         break;
-      case TFIELD_STARTSTOP: snprintf(vbuf, sizeof(vbuf), tempControlActive ? "CTRL: ON     " : "CTRL: OFF    "); break;
+      case TFIELD_BACK:      snprintf(vbuf, sizeof(vbuf), "< BACK       ");                                                             break;
+      case TFIELD_SETPOINT:  snprintf(vbuf, sizeof(vbuf), "SP: %5.1f C  ", tempSetpoint);                                              break;
+      case TFIELD_KP:        snprintf(vbuf, sizeof(vbuf), "Kp: %5.1f    ", kp);                                                        break;
+      case TFIELD_KI:        snprintf(vbuf, sizeof(vbuf), "Ki: %5.2f    ", ki);                                                        break;
+      case TFIELD_KD:        snprintf(vbuf, sizeof(vbuf), "Kd: %5.0f    ", kd);                                                        break;
+      case TFIELD_STARTSTOP: snprintf(vbuf, sizeof(vbuf), tempControlActive ? "CTRL: ON     " : "CTRL: OFF    ");                       break;
     }
     tft.print(vbuf);
   } else {
@@ -1440,15 +1665,16 @@ void drawTempSubField(int idx, bool active) {
     tft.setTextColor(0x8410, ST77XX_BLACK);
     tft.setCursor(16, fieldY[idx]);
     switch (idx) {
-      case TFIELD_BACK:      snprintf(vbuf, sizeof(vbuf), "< BACK");                                    break;
-      case TFIELD_SETPOINT:  snprintf(vbuf, sizeof(vbuf), "SP: %.1f C", tempSetpoint);                  break;
-      case TFIELD_KP:        snprintf(vbuf, sizeof(vbuf), "Kp: %.1f", kp);                              break;
-      case TFIELD_KI:        snprintf(vbuf, sizeof(vbuf), "Ki: %.2f", ki);                               break;
-      case TFIELD_KD:        snprintf(vbuf, sizeof(vbuf), "Kd: %.0f", kd);                              break;
-      case TFIELD_STARTSTOP: snprintf(vbuf, sizeof(vbuf), tempControlActive ? "CTRL: ON" : "CTRL: OFF"); break;
+      case TFIELD_BACK:      snprintf(vbuf, sizeof(vbuf), "< BACK");                                                                    break;
+      case TFIELD_SETPOINT:  snprintf(vbuf, sizeof(vbuf), "SP: %.1f C", tempSetpoint);                                                 break;
+      case TFIELD_KP:        snprintf(vbuf, sizeof(vbuf), "Kp: %.1f", kp);                                                             break;
+      case TFIELD_KI:        snprintf(vbuf, sizeof(vbuf), "Ki: %.2f", ki);                                                             break;
+      case TFIELD_KD:        snprintf(vbuf, sizeof(vbuf), "Kd: %.0f", kd);                                                             break;
+      case TFIELD_STARTSTOP: snprintf(vbuf, sizeof(vbuf), tempControlActive ? "CTRL: ON" : "CTRL: OFF");                               break;
     }
     tft.print(vbuf);
   }
+#endif
 }
 
 void drawSettingsHint(int) {
@@ -1649,13 +1875,25 @@ void updateSettingsContent() {
       tft.setCursor((LEFT_W - 8 * 12) / 2, STATE_Y);
       tft.print("TEMP SET");
       drawSettingsHint(0);
+#if INPUT_MODE == ROTARY
+      for (int i = 0; i < 6; i++) drawTempSubField(i, i == curIdx, i == curIdx && rotaryEditMode);
+#else
       for (int i = 0; i < 6; i++) drawTempSubField(i, i == curIdx);
+#endif
     } else if (prevTempFieldIdx != curIdx) {
       drawTempSubField(prevTempFieldIdx, false);
+#if INPUT_MODE == ROTARY
+      drawTempSubField(curIdx, true, rotaryEditMode);
+#else
       drawTempSubField(curIdx, true);
+#endif
       drawSettingsHint(0);
     } else {
+#if INPUT_MODE == ROTARY
+      drawTempSubField(curIdx, true, rotaryEditMode);
+#else
       drawTempSubField(curIdx, true);
+#endif
     }
     prevTempFieldIdx = curIdx;
   } else {
@@ -1667,7 +1905,12 @@ void updateSettingsContent() {
       tft.setCursor((LEFT_W - 8 * 12) / 2, STATE_Y);
       tft.print("SETTINGS");
       drawSettingsHint(curIdx);
+#if INPUT_MODE == ROTARY
+      // Draw all 7 fields (0..6 includes FIELD_EXIT at idx 6)
+      for (int i = 0; i < 7; i++) drawSettingsField(i, i == curIdx, i == curIdx && rotaryEditMode);
+#else
       for (int i = 0; i < 6; i++) drawSettingsField(i, i == curIdx);
+      // Calibration status line at y=192 (BUTTONS mode only)
       char  vbuf[24];
       float dist_xa_um = stepsToUm(dist_xa_steps);
       tft.setTextSize(1);
@@ -1680,12 +1923,21 @@ void updateSettingsContent() {
         snprintf(vbuf, sizeof(vbuf), "NOT CALIBRATED      ");
       }
       tft.print(vbuf);
+#endif
     } else if (prevSettingsFieldIdx != curIdx) {
       drawSettingsField(prevSettingsFieldIdx, false);
+#if INPUT_MODE == ROTARY
+      drawSettingsField(curIdx, true, rotaryEditMode);
+#else
       drawSettingsField(curIdx, true);
+#endif
       drawSettingsHint(curIdx);
     } else {
+#if INPUT_MODE == ROTARY
+      drawSettingsField(curIdx, true, rotaryEditMode);
+#else
       drawSettingsField(curIdx, true);
+#endif
     }
     prevSettingsFieldIdx = curIdx;
   }
@@ -1786,11 +2038,17 @@ void setup() {
   ledcWrite(HEATER_PIN, 0);
   Serial.printf("[heater] ledcAttach GPIO%d: %s\n", HEATER_PIN, heaterOk ? "OK" : "FAILED");
 
-  // Buttons
+  // Input device
+#if INPUT_MODE == ROTARY
+  pinMode(ENC_CLK, INPUT_PULLUP);
+  pinMode(ENC_DT,  INPUT_PULLUP);
+  pinMode(ENC_SW,  INPUT_PULLUP);
+#else
   pinMode(BTN_A, INPUT_PULLUP);
   pinMode(BTN_B, INPUT_PULLUP);
   pinMode(BTN_X, INPUT_PULLUP);
   pinMode(BTN_Y, INPUT_PULLUP);
+#endif
   pinMode(LIMIT_SW_X, INPUT_PULLUP);
   pinMode(LIMIT_SW_Y, INPUT_PULLUP);
 
@@ -1976,12 +2234,72 @@ void loop() {
     snprintf(wifiIpStr, sizeof(wifiIpStr), "WiFi: offline");
   }
 
-  // ---- Button processing -------------------------------------------------------
+  // ---- Virtual button snapshot (used by both input modes) ---------------------
   bool virtDown[4];
   portENTER_CRITICAL(&wsMux);
   for (int i = 0; i < 4; i++) virtDown[i] = virtualBtn[i];
   portEXIT_CRITICAL(&wsMux);
 
+#if INPUT_MODE == ROTARY
+  // ---- Rotary encoder CLK debounce + direction detection ----------------------
+  bool clkRaw = (digitalRead(ENC_CLK) == LOW);
+  if (clkRaw != encClkPrev) {
+    encClkStableAt = now;
+    encClkPrev     = clkRaw;
+  }
+  if ((now - encClkStableAt) >= ENC_DEBOUNCE_MS && clkRaw != encClkStable) {
+    bool falling = clkRaw && !encClkStable;  // HIGH→LOW = falling edge (pulse start)
+    encClkStable = clkRaw;
+    if (falling) {
+      int dir = (digitalRead(ENC_DT) == HIGH) ? +1 : -1;
+      onRotaryStep(dir);
+      updateButtons();
+      sendWsJson();
+    }
+  }
+
+  // ---- Rotary SW push button (press event only; no long-press) ----------------
+  bool swRaw = (digitalRead(ENC_SW) == LOW);
+  bool encBtnChanged = false;
+  if (swRaw && !encSwDown) {
+    encSwDown    = true;
+    encSwPressAt = now;
+    onRotaryPush();
+    encBtnChanged = true;
+  } else if (!swRaw && encSwDown) {
+    encSwDown     = false;
+    encBtnChanged = true;
+  }
+  if (encBtnChanged) {
+    updateButtons();
+    sendWsJson();
+  }
+
+  // ---- Virtual buttons (WiFi / serial bridge) still active in ROTARY mode ----
+  {
+    bool vBtnChanged = false;
+    for (int i = 0; i < 4; i++) {
+      if (virtDown[i] && !btnDown[i]) {
+        btnDown[i]      = true;
+        btnPressAt[i]   = now;
+        btnLongFired[i] = false;
+        btnRepeatAt[i]  = now + LONG_PRESS_MS;
+        onButtonPress(i);
+        vBtnChanged = true;
+      } else if (!virtDown[i] && btnDown[i]) {
+        btnDown[i] = false;
+        onButtonRelease(i);
+        vBtnChanged = true;
+      }
+    }
+    if (vBtnChanged) {
+      updateButtons();
+      sendWsJson();
+    }
+  }
+
+#else
+  // ---- Physical 4-button polling ----------------------------------------------
   bool curDown[4] = {
     !digitalRead(BTN_A) || virtDown[IDX_A],
     !digitalRead(BTN_B) || virtDown[IDX_B],
@@ -1992,7 +2310,6 @@ void loop() {
   bool btnChanged = false;
   for (int i = 0; i < 4; i++) {
     if (curDown[i] && !btnDown[i]) {
-      // Press
       btnDown[i]      = true;
       btnPressAt[i]   = now;
       btnLongFired[i] = false;
@@ -2000,19 +2317,16 @@ void loop() {
       onButtonPress(i);
       btnChanged = true;
     } else if (!curDown[i] && btnDown[i]) {
-      // Release
       btnDown[i] = false;
       onButtonRelease(i);
       btnChanged = true;
     } else if (curDown[i] && btnDown[i]) {
       if (!btnLongFired[i] && now >= btnPressAt[i] + LONG_PRESS_MS) {
-        // Long press fires once
         btnLongFired[i] = true;
         btnRepeatAt[i]  = now + REPEAT_MS;
         onButtonLong(i);
         btnChanged = true;
       } else if (btnLongFired[i] && now >= btnRepeatAt[i]) {
-        // Repeat
         btnRepeatAt[i] = now + REPEAT_MS;
         onButtonRepeat(i);
         btnChanged = true;
@@ -2021,8 +2335,9 @@ void loop() {
   }
   if (btnChanged) {
     updateButtons();
-    sendWsJson();   // immediate push — don't wait for 100 ms heartbeat
+    sendWsJson();
   }
+#endif
 
   // ---- Limit switch polling ---------------------------------------------------
   bool curLimX = !digitalRead(LIMIT_SW_X);
