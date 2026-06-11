@@ -33,10 +33,12 @@
 //   GPIO 33  — BTN_B  (UI: settings/home; settings: navigate down / exit+save)
 //   GPIO 14  — BTN_X  (UI: settings: increment/CAL trigger; no-op outside settings)
 //   GPIO 12  — BTN_Y  (UI: settings: decrement; no-op outside settings)
-//   [ROTARY mode — EC11 encoder replaces the 4 buttons]
-//   GPIO 14  — ENC_CLK  (was BTN_X)
-//   GPIO  4  — ENC_DT   (was BTN_A)
-//   GPIO 33  — ENC_SW   push button (was BTN_B)
+//   [ROTARY mode — bare EC11 encoder replaces the 4 buttons]
+//   GPIO 14  — ENC_CLK  3-pin side pin 1 (was BTN_X); 100 nF cap to GND
+//   GPIO  4  — ENC_DT   3-pin side pin 3 (was BTN_A); 100 nF cap to GND
+//              GND      3-pin side pin 2 (common/middle)
+//   GPIO 33  — ENC_SW   2-pin side, either pin  (was BTN_B); 100 nF cap to GND
+//              GND      2-pin side, other pin
 //   GPIO 12  — unused   (was BTN_Y)
 //   GPIO 13  — LIMIT_SW_X (home/X limit switch, active-low)
 //   GPIO 15  — LIMIT_SW_Y (far/Y limit switch, active-low, INPUT_PULLUP)
@@ -117,10 +119,13 @@
 #define BTN_Y   12   // UI: in settings: decrement (−); no-op outside settings  GPIO12: strapping pin — WROOM pull-down holds it LOW at boot (safe)
 
 // ---- Rotary encoder EC11 pins (ROTARY mode only) ----------------------------
-//   Reuses the button GPIOs; GPIO 12 (was BTN_Y) left unused.
-#define ENC_CLK  14   // CLK  (was BTN_X)
-#define ENC_DT    4   // DT   (was BTN_A)
-#define ENC_SW   33   // SW push-button (was BTN_B)
+//   Bare 5-pin metal EC11. Reuses button GPIOs; GPIO 12 (was BTN_Y) left unused.
+//   3-pin side (encoder): [CLK]-[GND]-[DT]   2-pin side (button): [SW]-[SW]
+//   VCC not needed — INPUT_PULLUP (~45 kΩ) provides pull-up; encoder shorts to GND.
+//   Hardware debounce: 100 nF ceramic cap from each signal pin to GND (RC ≈ 4.5 ms).
+#define ENC_CLK  14   // CLK encoder pin 1 → GPIO 14; encoder pin 2 (common) → GND
+#define ENC_DT    4   // DT  encoder pin 3 → GPIO 4
+#define ENC_SW   33   // SW  button pin 4 or 5 → GPIO 33; other button pin → GND
 #define LIMIT_SW_X 13  // home/X limit switch (active-low, INPUT_PULLUP)
 #define LIMIT_SW_Y 15  // far/Y  limit switch (active-low, INPUT_PULLUP)
 
