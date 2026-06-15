@@ -116,6 +116,17 @@ function drawWifiIcon(rssi,clients){
   setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
 }
 
+function drawIpStrip(d){
+  if(d.state==='SETTINGS') return;
+  const ip=(d.ip||'').replace(/^WiFi:\s*/,'');
+  const gapX=BTN_LEFT_X+BTN_W+1,gapW=BTN_RIGHT_X-BTN_LEFT_X-BTN_W-2;
+  ctx.fillStyle=C.BK;ctx.fillRect(gapX,BTN_BOT_Y,gapW,BTN_H);
+  if(!ip) return;
+  const tx=gapX+Math.floor((gapW-ip.length*cw(1))/2);
+  const ty=BTN_BOT_Y+Math.floor((BTN_H-ch(1))/2);
+  drawText(ip,tx,ty,1,C.CY,C.BK);
+}
+
 function drawButtons(d){
   const btn=d.btn||[false,false,false,false];
   if(d.state==='SETTINGS'){
@@ -391,6 +402,7 @@ function render(d){
   }
   if(inSettings) drawSettingsScreen(d); else drawRunScreen(d);
   drawButtons(d);
+  drawIpStrip(d);
   drawTempColumn(d);
   drawWifiIcon(d.rssi||0,d.clients||0);
   drawDividers();
