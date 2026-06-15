@@ -25,7 +25,6 @@ const { ReadlineParser } = require('@serialport/parser-readline');
 const { WebSocketServer } = require('ws');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const WS_PORT            = 8082;   // browser connects to ws://localhost:8082/ws
 const BAUD_RATE          = 115200;
 const RECONNECT_INTERVAL = 2000;   // ms between reconnect attempts
 
@@ -160,11 +159,50 @@ async function findCH340(portArg) {
   return found[0].path;
 }
 
-// ── Serial reconnect loop ─────────────────────────────────────────────────────
+// ── Shared port data/event wiring ─────────────────────────────────────────────
+
+function setupPortHandlers(port, portPath, onClose) {
+  const parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
+
+  parser.on('data', line => {
+    line = line.trim();
+    if (!line.startsWith('{')) return;
+
+    let obj;
+    try { obj = JSON.parse(line); } catch (_) { return; }
+
+    logDispatch(obj);
+
+    obj.transport = 'serial';
+    obj.log_info  = {
+      active:   logStream !== null,
+      filename: logStream ? path.basename(String(logStream.path)) : '',
+      folder:   logsDir,
+    };
+
+    const text = JSON.stringify(obj);
+    latestMsg  = text;
+    broadcast(text);
+  });
+
+  port.on('close', () => {
+    console.log(`\nSerial lost (${portPath})`);
+    currentPort = null;
+    logClose();
+    broadcast('{"serial_lost":true,"transport":"serial"}');
+    if (onClose) onClose();
+  });
+
+  port.on('error', err => {
+    console.error(`Serial error: ${err.message}`);
+    try { port.close(); } catch (_) { /* already closed */ }
+  });
+}
+
+// ── Serial reconnect loop (CLI / auto-connect mode) ───────────────────────────
 
 async function serialLoop(portArg) {
   while (loopActive) {
-    // --- find device ---
     let portPath;
     try {
       portPath = await findCH340(portArg);
@@ -178,7 +216,6 @@ async function serialLoop(portArg) {
       continue;
     }
 
-    // --- open port ---
     let port;
     try {
       port = new SerialPort({ path: portPath, baudRate: BAUD_RATE, autoOpen: false });
@@ -188,9 +225,8 @@ async function serialLoop(portArg) {
       continue;
     }
 
-    // Wait until the port closes (error or disconnect), then loop
     await new Promise(resolve => {
-      const parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
+      setupPortHandlers(port, portPath, resolve);
 
       port.open(err => {
         if (err) {
@@ -201,44 +237,6 @@ async function serialLoop(portArg) {
         currentPort = port;
         console.log(`\nConnected: ${portPath}  @  ${BAUD_RATE} baud`);
       });
-
-      // ── incoming serial data ──────────────────────────────────────────────
-      parser.on('data', line => {
-        line = line.trim();
-        if (!line.startsWith('{')) return;
-
-        let obj;
-        try { obj = JSON.parse(line); } catch (_) { return; }
-
-        // Experiment logging — update first so log_info reflects current state
-        logDispatch(obj);
-
-        // Inject transport + live log status for the browser UI
-        obj.transport = 'serial';
-        obj.log_info  = {
-          active:   logStream !== null,
-          filename: logStream ? path.basename(String(logStream.path)) : '',
-          folder:   logsDir,
-        };
-
-        const text = JSON.stringify(obj);
-        latestMsg  = text;
-        broadcast(text);
-      });
-
-      // ── port closed (cable pulled, reset, etc.) ───────────────────────────
-      port.on('close', () => {
-        console.log(`\nSerial lost (${portPath})`);
-        currentPort = null;
-        logClose();
-        broadcast('{"serial_lost":true,"transport":"serial"}');
-        resolve();
-      });
-
-      port.on('error', err => {
-        console.error(`Serial error: ${err.message}`);
-        try { port.close(); } catch (_) { /* already closed */ }
-      });
     });
 
     if (!loopActive) break;
@@ -247,11 +245,56 @@ async function serialLoop(portArg) {
   }
 }
 
+// ── Manual connect / disconnect (Electron UI mode) ────────────────────────────
+
+async function listPorts() {
+  return SerialPort.list();
+}
+
+async function connectToPort(portPath) {
+  if (currentPort && currentPort.isOpen) {
+    await disconnectFromPort();
+  }
+
+  let port;
+  try {
+    port = new SerialPort({ path: portPath, baudRate: BAUD_RATE, autoOpen: false });
+  } catch (e) {
+    throw new Error(`Cannot create port ${portPath}: ${e.message}`);
+  }
+
+  setupPortHandlers(port, portPath, null);   // no auto-reconnect on close
+
+  return new Promise((resolve, reject) => {
+    port.open(err => {
+      if (err) { reject(new Error(`Cannot open ${portPath}: ${err.message}`)); return; }
+      currentPort = port;
+      console.log(`Connected: ${portPath}  @  ${BAUD_RATE} baud`);
+      broadcast(JSON.stringify({ serial_connected: true, port: portPath, transport: 'serial' }));
+      resolve();
+    });
+  });
+}
+
+async function disconnectFromPort() {
+  if (!currentPort) return;
+  return new Promise(resolve => {
+    if (!currentPort.isOpen) { currentPort = null; resolve(); return; }
+    currentPort.close(err => {
+      if (err) console.warn('Close error:', err.message);
+      currentPort = null;
+      resolve();
+    });
+  });
+}
+
 // ── HTTP server ───────────────────────────────────────────────────────────────
 
-function startHTTP(httpPort) {
+// wsPort injected at serve time so the browser JS knows where to connect.
+function startHTTP(httpPort, wsPort) {
   return new Promise((resolve, reject) => {
-    const html = fs.readFileSync(HTML_PATH);
+    const htmlRaw = fs.readFileSync(HTML_PATH, 'utf8');
+    const html    = Buffer.from(htmlRaw.replace('__WS_PORT__', wsPort), 'utf8');
 
     httpServer = http.createServer((req, res) => {
       if (req.url === '/' || req.url === '/index.html') {
@@ -267,8 +310,9 @@ function startHTTP(httpPort) {
     });
 
     httpServer.listen(httpPort, '127.0.0.1', () => {
-      console.log(`HTTP  ←  http://127.0.0.1:${httpPort}`);
-      resolve();
+      const actual = httpServer.address().port;
+      console.log(`HTTP  ←  http://127.0.0.1:${actual}`);
+      resolve(actual);
     });
 
     httpServer.on('error', reject);
@@ -277,37 +321,43 @@ function startHTTP(httpPort) {
 
 // ── WebSocket server ──────────────────────────────────────────────────────────
 
-function startWS() {
-  wss = new WebSocketServer({ host: '127.0.0.1', port: WS_PORT });
-  console.log(`WS    ←  ws://127.0.0.1:${WS_PORT}/ws`);
+function startWS(wsPort) {
+  return new Promise((resolve, reject) => {
+    wss = new WebSocketServer({ host: '127.0.0.1', port: wsPort });
 
-  wss.on('connection', ws => {
-    clients.add(ws);
-
-    // Replay the latest heartbeat so the UI is populated immediately on connect
-    if (latestMsg) ws.send(latestMsg);
-
-    ws.on('message', raw => {
-      // Translate browser button-event JSON → bXY serial command
-      // Browser sends: {"btn":"A","action":"press"}
-      // Serial output: bA1  (3 bytes, no newline)
-      let msg;
-      try { msg = JSON.parse(raw); } catch (_) { return; }
-
-      const { btn, action } = msg;
-      if (!['A', 'B', 'X', 'Y'].includes(btn))                return;
-      if (!['press', 'release'].includes(action))              return;
-
-      const cmd = Buffer.from('b' + btn + (action === 'press' ? '1' : '0'));
-      if (currentPort && currentPort.isOpen) {
-        currentPort.write(cmd, err => {
-          if (err) console.warn('Serial write error:', err.message);
-        });
-      }
+    wss.on('listening', () => {
+      const actual = wss.address().port;
+      console.log(`WS    ←  ws://127.0.0.1:${actual}/ws`);
+      resolve(actual);
     });
 
-    ws.on('close', () => clients.delete(ws));
-    ws.on('error', () => clients.delete(ws));
+    wss.on('error', reject);
+
+    wss.on('connection', ws => {
+      clients.add(ws);
+
+      // Replay the latest heartbeat so the UI is populated immediately on connect
+      if (latestMsg) ws.send(latestMsg);
+
+      ws.on('message', raw => {
+        let msg;
+        try { msg = JSON.parse(raw); } catch (_) { return; }
+
+        const { btn, action } = msg;
+        if (!['A', 'B', 'X', 'Y'].includes(btn))                return;
+        if (!['press', 'release'].includes(action))              return;
+
+        const cmd = Buffer.from('b' + btn + (action === 'press' ? '1' : '0'));
+        if (currentPort && currentPort.isOpen) {
+          currentPort.write(cmd, err => {
+            if (err) console.warn('Serial write error:', err.message);
+          });
+        }
+      });
+
+      ws.on('close', () => clients.delete(ws));
+      ws.on('error', () => clients.delete(ws));
+    });
   });
 }
 
@@ -318,17 +368,26 @@ function startWS() {
  * is listening (so Electron can call loadURL() straight away).
  *
  * @param {object} opts
- * @param {number}      opts.httpPort  HTTP port for the UI (default 8080)
- * @param {string|null} opts.portArg   Serial port path, or null for auto-detect
- * @param {string}      opts.logsDir   Directory for CSV logs
+ * @param {number}      opts.httpPort     HTTP port for the UI (default 8080)
+ * @param {string|null} opts.portArg      Serial port path, or null for auto-detect
+ * @param {string}      opts.logsDir      Directory for CSV logs
+ * @param {boolean}     opts.autoConnect  If false, skip serialLoop (Electron UI handles connect)
  */
-async function startBridge({ httpPort = 8080, portArg = null, logsDir: logsPath } = {}) {
+async function startBridge({ httpPort = 0, portArg = null, logsDir: logsPath, autoConnect = true } = {}) {
   if (logsPath) logsDir = logsPath;
-  loopActive = true;
 
-  await startHTTP(httpPort);
-  startWS();
-  serialLoop(portArg);   // runs forever; errors are caught internally
+  // Port 0 → OS assigns a free port; works even when 8080/8082 are occupied.
+  const actualWsPort   = await startWS(0);
+  const actualHttpPort = await startHTTP(httpPort, actualWsPort);
+
+  if (autoConnect) {
+    loopActive = true;
+    serialLoop(portArg);   // runs forever; errors are caught internally
+  } else if (portArg) {
+    connectToPort(portArg).catch(e => console.warn('Auto-connect failed:', e.message));
+  }
+
+  return { httpPort: actualHttpPort, wsPort: actualWsPort };
 }
 
 function stopBridge() {
@@ -345,7 +404,7 @@ function setLogsDir(newDir) {
   logsDir = newDir;
 }
 
-module.exports = { startBridge, stopBridge, setLogsDir };
+module.exports = { startBridge, stopBridge, setLogsDir, listPorts, connectToPort, disconnectFromPort };
 
 // ── Standalone CLI (node bridge.js) ──────────────────────────────────────────
 if (require.main === module) {
@@ -363,8 +422,8 @@ if (require.main === module) {
   }
 
   startBridge({ httpPort, portArg, logsDir: path.join(__dirname, 'logs') })
-    .then(() => {
-      console.log(`\nOpen  →  http://localhost:${httpPort}`);
+    .then(({ httpPort: actual }) => {
+      console.log(`\nOpen  →  http://localhost:${actual}`);
       console.log('Press Ctrl+C to stop.\n');
     })
     .catch(err => {

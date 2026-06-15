@@ -20,9 +20,8 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs   = require('fs');
-const { startBridge, stopBridge, setLogsDir } = require('./bridge');
+const { startBridge, stopBridge, setLogsDir, listPorts, connectToPort, disconnectFromPort } = require('./bridge');
 
-const HTTP_PORT    = 8080;
 const SETTINGS_KEY = 'logsDir';
 
 // Persist a single settings.json in userData (no extra npm dependency needed)
@@ -61,6 +60,7 @@ function getPortArg() {
 let win          = null;
 let currentLogsDir = null;
 let settingsPath   = null;
+let httpPort       = null;   // assigned by startBridge (OS-picked free port)
 
 function createWindow() {
   win = new BrowserWindow({
@@ -78,7 +78,7 @@ function createWindow() {
   });
 
   win.setMenuBarVisibility(false);
-  win.loadURL(`http://127.0.0.1:${HTTP_PORT}`);
+  win.loadURL(`http://127.0.0.1:${httpPort}`);
 
   win.on('closed', () => { win = null; });
 }
@@ -89,6 +89,11 @@ app.whenReady().then(async () => {
 
   const settings = loadSettings(settingsPath);
   currentLogsDir = settings[SETTINGS_KEY] || path.join(app.getPath('userData'), 'logs');
+
+  // IPC: serial port management
+  ipcMain.handle('list-ports',      ()         => listPorts());
+  ipcMain.handle('connect-port',    (_, path)  => connectToPort(path));
+  ipcMain.handle('disconnect-port', ()         => disconnectFromPort());
 
   // IPC: return current logs directory
   ipcMain.handle('get-logs-dir', () => currentLogsDir);
@@ -114,7 +119,7 @@ app.whenReady().then(async () => {
   });
 
   try {
-    await startBridge({ httpPort: HTTP_PORT, portArg, logsDir: currentLogsDir });
+    ({ httpPort } = await startBridge({ portArg, logsDir: currentLogsDir, autoConnect: false }));
   } catch (err) {
     console.error('Bridge failed to start:', err);
     app.quit();
