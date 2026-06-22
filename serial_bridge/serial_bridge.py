@@ -281,7 +281,7 @@ async def _serial_loop(port_arg: Optional[str], http_port: int) -> None:
             continue
 
         try:
-            s = serial.Serial(port, BAUD_RATE, timeout=0.5)
+            s = serial.Serial(port, BAUD_RATE, timeout=0.5, dtr=False, rts=False)
         except serial.SerialException as exc:
             print(f"Cannot open {port}: {exc}")
             await asyncio.sleep(RECONNECT_INTERVAL)

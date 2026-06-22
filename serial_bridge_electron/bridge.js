@@ -16,9 +16,10 @@
  *   node bridge.js [serialPort] [--http-port PORT]
  */
 
-const fs   = require('fs');
-const http = require('http');
-const path = require('path');
+const fs     = require('fs');
+const http   = require('http');
+const path   = require('path');
+const { execSync } = require('child_process');
 
 const { SerialPort }     = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
@@ -199,6 +200,22 @@ function setupPortHandlers(port, portPath, onClose) {
   });
 }
 
+// ── Pre-open serial line conditioning ────────────────────────────────────────
+// On Linux, opening a serial port asserts RTS by default. On ESP32 DevKit boards
+// the auto-reset circuit connects RTS → GPIO0 via a transistor, so an asserted
+// RTS during reset holds GPIO0 LOW → bootloader mode → stuck.
+// Running stty with -hupcl (no DTR drop on close) and -crtscts (no HW flow
+// control, prevents RTS assertion) BEFORE node-serialport opens the device
+// avoids the race window that port.set() has after open().
+function preparePort(portPath) {
+  if (process.platform !== 'linux') return;
+  try {
+    execSync(`stty -F ${portPath} -hupcl -crtscts`, { stdio: 'ignore' });
+  } catch (_) {
+    // stty may fail if port is not yet accessible; not fatal
+  }
+}
+
 // ── Serial reconnect loop (CLI / auto-connect mode) ───────────────────────────
 
 async function serialLoop(portArg) {
@@ -216,9 +233,10 @@ async function serialLoop(portArg) {
       continue;
     }
 
+    preparePort(portPath);
     let port;
     try {
-      port = new SerialPort({ path: portPath, baudRate: BAUD_RATE, autoOpen: false });
+      port = new SerialPort({ path: portPath, baudRate: BAUD_RATE, autoOpen: false, hupcl: false });
     } catch (e) {
       console.log(`Cannot create SerialPort for ${portPath}: ${e.message}`);
       await sleep(RECONNECT_INTERVAL);
@@ -234,6 +252,9 @@ async function serialLoop(portArg) {
           resolve();
           return;
         }
+        port.set({ dtr: false, rts: false }, setErr => {
+          if (setErr) console.warn(`DTR/RTS clear failed: ${setErr.message}`);
+        });
         currentPort = port;
         console.log(`\nConnected: ${portPath}  @  ${BAUD_RATE} baud`);
       });
@@ -256,9 +277,10 @@ async function connectToPort(portPath) {
     await disconnectFromPort();
   }
 
+  preparePort(portPath);
   let port;
   try {
-    port = new SerialPort({ path: portPath, baudRate: BAUD_RATE, autoOpen: false });
+    port = new SerialPort({ path: portPath, baudRate: BAUD_RATE, autoOpen: false, hupcl: false });
   } catch (e) {
     throw new Error(`Cannot create port ${portPath}: ${e.message}`);
   }
@@ -268,6 +290,9 @@ async function connectToPort(portPath) {
   return new Promise((resolve, reject) => {
     port.open(err => {
       if (err) { reject(new Error(`Cannot open ${portPath}: ${err.message}`)); return; }
+      port.set({ dtr: false, rts: false }, setErr => {
+        if (setErr) console.warn(`DTR/RTS clear failed: ${setErr.message}`);
+      });
       currentPort = port;
       console.log(`Connected: ${portPath}  @  ${BAUD_RATE} baud`);
       broadcast(JSON.stringify({ serial_connected: true, port: portPath, transport: 'serial' }));
@@ -278,8 +303,16 @@ async function connectToPort(portPath) {
 
 async function disconnectFromPort() {
   if (!currentPort) return;
+  // Deassert DTR and RTS before closing so the CH340 driver doesn't release
+  // the modem lines in an unexpected order on port close (Windows issue: Win32
+  // sends DTR and RTS changes separately, creating a brief window that the
+  // ESP32 auto-reset transistor circuit can misinterpret as a reset sequence).
+  await new Promise(resolve => {
+    if (!currentPort || !currentPort.isOpen) { resolve(); return; }
+    currentPort.set({ dtr: false, rts: false }, () => setTimeout(resolve, 50));
+  });
   return new Promise(resolve => {
-    if (!currentPort.isOpen) { currentPort = null; resolve(); return; }
+    if (!currentPort || !currentPort.isOpen) { currentPort = null; resolve(); return; }
     currentPort.close(err => {
       if (err) console.warn('Close error:', err.message);
       currentPort = null;
