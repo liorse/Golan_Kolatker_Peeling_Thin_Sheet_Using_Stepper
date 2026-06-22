@@ -262,7 +262,7 @@ bool          limitXPrev     = false;
 bool          limitYPrev     = false;
 unsigned long limitXStableAt = 0;
 unsigned long limitYStableAt = 0;
-const unsigned long LIMIT_DEBOUNCE_MS = 2;
+const unsigned long LIMIT_DEBOUNCE_MS = 20;
 
 // ---- Warning overlay --------------------------------------------------------
 unsigned long warningUntil = 0;
@@ -2043,7 +2043,7 @@ void loop() {
   limitYPrev = curLimY;
 
   if (appState == HOMING || appState == CAL_HOMING) {
-    if (curLimX) {                              // home-end switch triggered
+    if (xNewPress) {                            // home-end switch triggered (edge+debounce, same as MOVING)
       stepper->forceStop();
       while (stepper->isRunning()) {}           // wait for PIO to flush buffered steps
       stepper->setCurrentPosition(0);
