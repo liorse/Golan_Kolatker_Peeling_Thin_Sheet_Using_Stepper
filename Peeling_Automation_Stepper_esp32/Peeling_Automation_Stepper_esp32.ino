@@ -958,7 +958,7 @@ void startHoming() {
   enableMotor();
   stepper->setSpeedInHz(calSpeedHz() + 1); // Force FastAccelStepper ramp update
   stepper->setSpeedInHz(calSpeedHz());
-  stepper->runBackward();
+  stepper->moveTo(0);
 }
 
 void startCal() {
@@ -2142,6 +2142,16 @@ void loop() {
   switch (appState) {
     case MOVING:
       if (!stepper->isRunning()) {
+        disableMotor();
+        appState = IDLE;
+        updateButtons();
+      }
+      break;
+
+    case HOMING:
+      // Stop at pos 0 even if the limit switch was never triggered
+      if (!stepper->isRunning()) {
+        stepper->setCurrentPosition(0);
         disableMotor();
         appState = IDLE;
         updateButtons();
