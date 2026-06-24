@@ -827,7 +827,7 @@ void doIncrement(int dir, bool fast) {
       break;
     case FIELD_SPEED:
       speed_um_s = constrain(speed_um_s + (float)dir * (fast ? 10.0f : 1.0f),
-                             1.0f, 1000.0f);
+                             1.0f, 5000.0f);
       break;
     case FIELD_START: {
       float maxStart = (dist_xa_um > 0.0f) ? dist_xa_um : 1e6f;
