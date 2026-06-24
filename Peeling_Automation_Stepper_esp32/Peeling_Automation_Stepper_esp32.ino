@@ -503,7 +503,7 @@ function drawButtons(d){
     drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,yLbl,btn[3],2);
   }else{
     let aLbl,bLbl;
-    if(d.state==='IDLE'){aLbl=d.dist_xa_steps>0?'GO':'!CAL';bLbl=d.position===0?'SET':'HOME';}
+    if(d.state==='IDLE'){aLbl=d.dist_xa_steps>0?'GO':'!CAL';bLbl=d.has_homed?'SET':'HOME';}
     else{aLbl='STOP';bLbl='----';}
     drawButtonBox(BTN_LEFT_X,BTN_TOP_Y,aLbl,btn[0],2);
     drawButtonBox(BTN_LEFT_X,BTN_BOT_Y,bLbl,btn[1],2);
@@ -2413,7 +2413,8 @@ void loop() {
         "\"kp\":%.2f,"
         "\"ki\":%.3f,"
         "\"kd\":%.1f,"
-        "\"ip\":\"%s\"}",
+        "\"ip\":\"%s\","
+        "\"has_homed\":%s}",
         stateStr,
         (int)stepper->getCurrentPosition(),
         (int)actual_hz,
@@ -2444,7 +2445,8 @@ void loop() {
         kp,
         ki,
         kd,
-        wifiIpStr
+        wifiIpStr,
+        hasHomed ? "true" : "false"
       );
 
       if (Serial) Serial.println(json);
