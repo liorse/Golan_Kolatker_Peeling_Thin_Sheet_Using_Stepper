@@ -468,6 +468,7 @@ function drawWifiIcon(rssi,clients){
     ctx.beginPath();ctx.moveTo(cx-7,cy-11);ctx.lineTo(cx+7,cy-1);ctx.stroke();
     ctx.beginPath();ctx.moveTo(cx+7,cy-11);ctx.lineTo(cx-7,cy-1);ctx.stroke();
     setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
+    ctx.fillStyle='#848484';ctx.fillText('v4.4.0',82,4);
     return;
   }
   // dot
@@ -482,6 +483,7 @@ function drawWifiIcon(rssi,clients){
     ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,0);ctx.stroke();
   });
   setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
+  ctx.fillStyle='#848484';ctx.fillText('v4.4.0',82,4);
 }
 
 function drawButtons(d){
@@ -1771,6 +1773,13 @@ void initUI() {
   tft.drawFastHLine(0, DIV_BOT_Y, LEFT_W, ST77XX_CYAN);
   tft.drawFastVLine(TCOL_X - 1, 0, SCREEN_H, ST77XX_CYAN);  // column divider
   updateButtons();
+
+  // Draw Version number above wifi icon
+  tft.setTextSize(1);
+  tft.setTextColor(0x8410, ST77XX_BLACK); // dark gray
+  tft.setCursor(82, 3);
+  tft.print("v4.4.0");
+
   drawWifiIcon(0);
   updateRunContent();
   updateTempColumn();
