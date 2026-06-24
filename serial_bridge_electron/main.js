@@ -22,7 +22,8 @@ const path = require('path');
 const fs   = require('fs');
 const { startBridge, stopBridge, setLogsDir, listPorts, connectToPort, disconnectFromPort } = require('./bridge');
 
-const SETTINGS_KEY = 'logsDir';
+const SETTINGS_KEY  = 'logsDir';
+const LAST_PORT_KEY = 'lastPort';
 
 // Persist a single settings.json in userData (no extra npm dependency needed)
 function loadSettings(settingsPath) {
@@ -88,11 +89,17 @@ app.whenReady().then(async () => {
   settingsPath  = path.join(app.getPath('userData'), 'settings.json');
 
   const settings = loadSettings(settingsPath);
-  currentLogsDir = settings[SETTINGS_KEY] || path.join(app.getPath('userData'), 'logs');
+  currentLogsDir = settings[SETTINGS_KEY]  || path.join(app.getPath('userData'), 'logs');
+  const savedPort = settings[LAST_PORT_KEY] || portArg || null;
 
   // IPC: serial port management
   ipcMain.handle('list-ports',      ()         => listPorts());
-  ipcMain.handle('connect-port',    (_, path)  => connectToPort(path));
+  ipcMain.handle('connect-port', async (_, portPath) => {
+    await connectToPort(portPath);
+    const s = loadSettings(settingsPath);
+    s[LAST_PORT_KEY] = portPath;
+    saveSettings(settingsPath, s);
+  });
   ipcMain.handle('disconnect-port', ()         => disconnectFromPort());
 
   // IPC: return current logs directory
@@ -119,7 +126,7 @@ app.whenReady().then(async () => {
   });
 
   try {
-    ({ httpPort } = await startBridge({ portArg, logsDir: currentLogsDir, autoConnect: false }));
+    ({ httpPort } = await startBridge({ portArg: savedPort, logsDir: currentLogsDir, autoConnect: false }));
   } catch (err) {
     console.error('Bridge failed to start:', err);
     app.quit();
