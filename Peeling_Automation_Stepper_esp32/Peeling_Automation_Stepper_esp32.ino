@@ -260,6 +260,7 @@ const unsigned long REPEAT_MS     = 100;
 // ---- Limit switch edge detection (for safety abort in moving states) --------
 bool          limitXPrev     = false;
 bool          limitYPrev     = false;
+bool          hasHomed       = false;
 unsigned long limitXStableAt = 0;
 unsigned long limitYStableAt = 0;
 const unsigned long LIMIT_DEBOUNCE_MS = 20;
@@ -502,7 +503,7 @@ function drawButtons(d){
     drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,yLbl,btn[3],2);
   }else{
     let aLbl,bLbl;
-    if(d.state==='IDLE'){aLbl=d.dist_xa_steps>0?'GO':'!CAL';bLbl=d.position===0?'SET':'HOME';}
+    if(d.state==='IDLE'){aLbl=d.dist_xa_steps>0?'GO':'!CAL';bLbl=d.has_homed?'SET':'HOME';}
     else{aLbl='STOP';bLbl='----';}
     drawButtonBox(BTN_LEFT_X,BTN_TOP_Y,aLbl,btn[0],2);
     drawButtonBox(BTN_LEFT_X,BTN_BOT_Y,bLbl,btn[1],2);
@@ -958,15 +959,23 @@ void startHoming() {
   enableMotor();
   stepper->setSpeedInHz(calSpeedHz() + 1); // Force FastAccelStepper ramp update
   stepper->setSpeedInHz(calSpeedHz());
-  stepper->moveTo(0);
+  stepper->runBackward();
 }
 
 void startCal() {
-  appState = CAL_HOMING;
   enableMotor();
   stepper->setSpeedInHz(calSpeedHz() + 1); // Force FastAccelStepper ramp update
   stepper->setSpeedInHz(calSpeedHz());
-  stepper->runBackward();
+  if (!digitalRead(LIMIT_SW_X)) {          // already at home switch — skip homing
+    stepper->setCurrentPosition(0);
+    limitYStableAt = 0;
+    limitYPrev     = false;
+    stepper->runForward();
+    appState = CAL_RUNNING;
+  } else {
+    stepper->runBackward();
+    appState = CAL_HOMING;
+  }
 }
 
 void cycleSettingsField() {
@@ -998,7 +1007,7 @@ void onButtonPress(int idx) {
           startMoveToStart();
         }
       } else if (idx == IDX_B) {
-        if (stepper->getCurrentPosition() == 0) {
+        if (hasHomed) {
           appState            = SETTINGS;
           settingsField       = FIELD_SPEED;
           settingsDirty       = true;
@@ -1090,6 +1099,7 @@ void onButtonPress(int idx) {
     case CAL_HOMING:
     case CAL_RUNNING:
       if (idx == IDX_A) {          // A = UI stop button
+        hasHomed = false;
         abortAndIdle();
       }
       break;
@@ -1176,7 +1186,7 @@ void updateButtons() {
   } else {
     if (appState == IDLE) {
       strcpy(aLbl, dist_xa_steps > 0 ? "GO" : "!CAL");
-      strcpy(bLbl, stepper->getCurrentPosition() == 0 ? "SET" : "HOME");
+      strcpy(bLbl, hasHomed ? "SET" : "HOME");
     } else {
       strcpy(aLbl, "STOP");
       strcpy(bLbl, "----");
@@ -1793,6 +1803,7 @@ void setup() {
   pinMode(BTN_Y, INPUT_PULLUP);
   pinMode(LIMIT_SW_X, INPUT_PULLUP);
   pinMode(LIMIT_SW_Y, INPUT_PULLUP);
+  hasHomed = !digitalRead(LIMIT_SW_X);  // already at home position on boot
 
   // Load saved settings (also calls updateMicronsPerStep internally)
   loadPrefs();
@@ -1886,7 +1897,8 @@ static void sendWsJson() {
     "\"kp\":%.2f,"
     "\"ki\":%.3f,"
     "\"kd\":%.1f,"
-    "\"ip\":\"%s\"}",
+    "\"ip\":\"%s\","
+    "\"has_homed\":%s}",
     stateStr,
     (int)stepper->getCurrentPosition(),
     (int)actual_hz,
@@ -1917,7 +1929,8 @@ static void sendWsJson() {
     kp,
     ki,
     kd,
-    wifiIpStr
+    wifiIpStr,
+    hasHomed ? "true" : "false"
   );
 
   if (Serial) {
@@ -2054,6 +2067,7 @@ void loop() {
         limitYPrev     = false;
         appState = CAL_RUNNING;
       } else {
+        hasHomed = true;
         disableMotor();
         appState = IDLE;
       }
@@ -2065,11 +2079,13 @@ void loop() {
       stepper->forceStop();
       disableMotor();
       saveCalibration();
+      hasHomed = false;
       appState = IDLE;
       updateButtons();
     }
   } else if (appState == MOVING || appState == MOVING_TO_START || appState == WAITING_FOR_TEMP || appState == PEELING) {
     if (xNewPress || yNewPress) {               // new contact only — not a stale press
+      if (yNewPress) hasHomed = false;          // at far end — need to home before settings
       abortAndIdle();
       updateButtons();
     }
@@ -2080,6 +2096,7 @@ void loop() {
     char cmd = Serial.read();
     switch (cmd) {
       case 's':
+        hasHomed = false;
         abortAndIdle();
         updateButtons();
         break;
@@ -2149,13 +2166,7 @@ void loop() {
       break;
 
     case HOMING:
-      // Stop at pos 0 even if the limit switch was never triggered
-      if (!stepper->isRunning()) {
-        stepper->setCurrentPosition(0);
-        disableMotor();
-        appState = IDLE;
-        updateButtons();
-      }
+      // Motor runs backward until limit switch triggers (handled in switch debounce section above)
       break;
 
     case MOVING_TO_START:
