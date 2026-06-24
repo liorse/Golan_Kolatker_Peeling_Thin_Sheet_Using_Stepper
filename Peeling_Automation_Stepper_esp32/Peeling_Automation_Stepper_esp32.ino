@@ -957,6 +957,14 @@ void startPeeling() {
 void startHoming() {
   appState = HOMING;
   enableMotor();
+  if (!digitalRead(LIMIT_SW_X)) {          // already at home switch — no need to move
+    stepper->setCurrentPosition(0);
+    hasHomed = true;
+    disableMotor();
+    appState = IDLE;
+    updateButtons();
+    return;
+  }
   stepper->setSpeedInHz(calSpeedHz() + 1); // Force FastAccelStepper ramp update
   stepper->setSpeedInHz(calSpeedHz());
   stepper->runBackward();
