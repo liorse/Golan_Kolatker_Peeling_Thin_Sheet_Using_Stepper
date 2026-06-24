@@ -94,7 +94,7 @@ function drawWifiIcon(rssi,clients){
     ctx.beginPath();ctx.moveTo(cx-7,cy-11);ctx.lineTo(cx+7,cy-1);ctx.stroke();
     ctx.beginPath();ctx.moveTo(cx+7,cy-11);ctx.lineTo(cx-7,cy-1);ctx.stroke();
     setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
-    ctx.fillStyle='#848484';ctx.fillText('v4.4.0',82,4);
+    ctx.fillStyle='#848484';ctx.fillText('v4.4.1',82,4);
     return;
   }
   ctx.fillStyle=color;ctx.beginPath();ctx.arc(cx,cy,2,0,Math.PI*2);ctx.fill();
@@ -107,7 +107,7 @@ function drawWifiIcon(rssi,clients){
     ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,0);ctx.stroke();
   });
   setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
-  ctx.fillStyle='#848484';ctx.fillText('v4.4.0',82,4);
+  ctx.fillStyle='#848484';ctx.fillText('v4.4.1',82,4);
 }
 
 function drawButtons(d){
