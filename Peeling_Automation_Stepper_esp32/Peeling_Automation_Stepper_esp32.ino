@@ -32,8 +32,8 @@
 //   GPIO 33  — BTN_B  (UI: settings/home; settings: navigate down / exit+save)
 //   GPIO 14  — BTN_X  (UI: settings: increment/CAL trigger; no-op outside settings)
 //   GPIO 12  — BTN_Y  (UI: settings: decrement; no-op outside settings)
-//   GPIO 13  — LIMIT_SW_X (home/X limit switch, active-low)
-//   GPIO 15  — LIMIT_SW_Y (far/Y limit switch, active-low, INPUT_PULLUP)
+//   GPIO 15  — LIMIT_SW_X (home/X limit switch, active-low)
+//   GPIO 13  — LIMIT_SW_Y (far/Y limit switch, active-low, INPUT_PULLUP)
 //   GPIO  2  — TFT_RST
 //   GPIO 17  — TFT_DC
 //   GPIO  5  — TFT_CS
@@ -101,8 +101,8 @@
 #define BTN_B   33   // UI: settings / home; in settings: navigate down / exit+save
 #define BTN_X   14   // UI: in settings: increment (+) or trigger CAL; no-op outside settings
 #define BTN_Y   12   // UI: in settings: decrement (−); no-op outside settings  GPIO12: strapping pin — WROOM pull-down holds it LOW at boot (safe)
-#define LIMIT_SW_X 13  // home/X limit switch (active-low, INPUT_PULLUP)
-#define LIMIT_SW_Y 15  // far/Y  limit switch (active-low, INPUT_PULLUP)
+#define LIMIT_SW_X 15  // home/X limit switch (active-low, INPUT_PULLUP)
+#define LIMIT_SW_Y 13  // far/Y  limit switch (active-low, INPUT_PULLUP)
 
 // ---- MAX31856 thermocouple amplifier (VSPI shared with display) ---------------
 #define MAX_CS    21
@@ -300,8 +300,8 @@ int  prevSettingsFieldIdx = -1;   // -1 = first draw needed
 // Unit conversion
 // =============================================================================
 int calSpeedHz() {
-  // Targets ≈1 mm/s (1000 µm/s) at the motor regardless of microstep setting.
-  int hz = (int)(1000.0f / microns_per_step);
+  // Targets ≈10 mm/s (10000 µm/s) at the motor → ≈5000 µm/s at the peel point.
+  int hz = (int)(10000.0f / microns_per_step);
   return hz < 1 ? 1 : hz;
 }
 
