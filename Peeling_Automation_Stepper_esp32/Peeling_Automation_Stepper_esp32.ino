@@ -916,7 +916,8 @@ void disableMotor() {
 
 void abortAndIdle() {
   if (stepper->isRunning()) {
-    stepper->forceStop();
+    stepper->stopMove();
+    while (stepper->isRunning()) {}
   }
   disableMotor();
   startPeelAt = 0;
@@ -2074,7 +2075,7 @@ void loop() {
 
   if (appState == HOMING || appState == CAL_HOMING) {
     if (xNewPress) {                            // home-end switch triggered (edge+debounce, same as MOVING)
-      stepper->forceStop();
+      stepper->stopMove();
       while (stepper->isRunning()) {}           // wait for PIO to flush buffered steps
       stepper->setCurrentPosition(0);
       if (appState == CAL_HOMING) {
@@ -2093,7 +2094,8 @@ void loop() {
   } else if (appState == CAL_RUNNING) {
     if (yNewPress) {                            // far-end switch (GPIO 15): edge+debounce guards against motor-startup transients
       dist_xa_steps = stepper->getCurrentPosition();
-      stepper->forceStop();
+      stepper->stopMove();
+      while (stepper->isRunning()) {}
       disableMotor();
       saveCalibration();
       hasHomed = false;
@@ -2106,7 +2108,7 @@ void loop() {
         hasHomed = false;          // at far end — need to home before settings
       } else if (xNewPress) {
         hasHomed = true;
-        stepper->forceStop();
+        stepper->stopMove();
         while (stepper->isRunning()) {}
         stepper->setCurrentPosition(0);
       }
