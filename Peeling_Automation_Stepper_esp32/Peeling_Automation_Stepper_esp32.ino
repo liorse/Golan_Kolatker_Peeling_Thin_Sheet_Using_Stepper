@@ -2,8 +2,8 @@
 // Project   : Peeling Thin Sheet Using Stepper Motor — ESP32 Controller
 // File      : Peeling_Automation_Stepper_esp32.ino
 // Author    : Lior Segev
-// Version   : 4.3.0-esp32
-// Date      : June 3, 2026
+// Version   : 4.4.0-esp32
+// Date      : June 24, 2026
 // =============================================================================
 //
 // OVERVIEW
@@ -2093,8 +2093,24 @@ void loop() {
     }
   } else if (appState == MOVING || appState == MOVING_TO_START || appState == WAITING_FOR_TEMP || appState == PEELING) {
     if (xNewPress || yNewPress) {               // new contact only — not a stale press
-      if (yNewPress) hasHomed = false;          // at far end — need to home before settings
+      if (yNewPress) {
+        hasHomed = false;          // at far end — need to home before settings
+      } else if (xNewPress) {
+        hasHomed = true;
+        stepper->forceStop();
+        while (stepper->isRunning()) {}
+        stepper->setCurrentPosition(0);
+      }
       abortAndIdle();
+      updateButtons();
+    }
+  } else if (appState == IDLE) {
+    if (xNewPress || yNewPress) {
+      if (yNewPress) hasHomed = false;
+      if (xNewPress) {
+        hasHomed = true;
+        stepper->setCurrentPosition(0);
+      }
       updateButtons();
     }
   }
@@ -2168,6 +2184,9 @@ void loop() {
     case MOVING:
       if (!stepper->isRunning()) {
         disableMotor();
+        if (stepper->getCurrentPosition() != 0) {
+          hasHomed = false;
+        }
         appState = IDLE;
         updateButtons();
       }
@@ -2212,6 +2231,7 @@ void loop() {
           ledcWrite(HEATER_PIN, 0);
           tempCtrlAutoEnabled = false;
         }
+        hasHomed = false;
         appState = IDLE;
         updateButtons();
       }

@@ -245,4 +245,4 @@ SETTINGS: A = navigate up, B = navigate down / exit+save, X = +/CAL/OPEN, Y = �
 
 ## Author
 
-Lior Segev — Version 4.3.0-esp32, June 2026
+Lior Segev — Version 4.4.0-esp32, June 2026
