@@ -2,7 +2,7 @@
 // Project   : Peeling Thin Sheet Using Stepper Motor — ESP32 Controller
 // File      : Peeling_Automation_Stepper_esp32.ino
 // Author    : Lior Segev
-// Version   : 4.4.1-esp32
+// Version   : 4.4.1-esp32 
 // Date      : June 24, 2026
 // =============================================================================
 //
