@@ -85,6 +85,8 @@
 #include <ESPmDNS.h>
 #include "wifi_credentials.h"
 
+#define ST77XX_ORANGE 0xFD20   // RGB565 ≈ (255, 165, 0)
+
 // ---- Stepper driver pins ----------------------------------------------------
 #define enablePinStepper  26
 #define dirPinStepper     25
@@ -218,6 +220,7 @@ enum AppState {
   MOVING_TO_START,   // button-triggered: moves to start_pos, then auto-peels
   WAITING_FOR_TEMP,  // motor at start pos, waiting for temperature to reach setpoint
   PEELING,
+  PAUSED,            // mid-peel stop: A=CONT resumes, B=HOME discards
   HOMING,
   SETTINGS,
   CAL_HOMING,
@@ -401,8 +404,8 @@ const fieldY=[60,82,104,126,148,170];
 const tempFieldY=[60,82,104,126,148,170];
 const TCOL_X=200,TCOL_W=120;
 const TBAR_X=209,TBAR_W=40,TBAR_TOP=46,TBAR_BOT=220,TBAR_H=TBAR_BOT-TBAR_TOP;
-const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484'};
-const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,WAIT_TEMP:C.YE,PEELING:C.YE,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
+const C={BK:'#000000',WH:'#ffffff',CY:'#00f8ff',GR:'#00fc00',YE:'#f8fc00',RE:'#f80000',GY:'#848484',OR:'#ff8000'};
+const STATE_COL={IDLE:C.GR,MOVING:C.YE,TO_START:C.YE,WAIT_TEMP:C.YE,PEELING:C.YE,PAUSED:C.OR,HOMING:C.CY,CAL_HOME:C.CY,CAL_RUN:C.CY,SETTINGS:C.GR};
 
 const cv=document.getElementById('c');
 const ctx=cv.getContext('2d');
@@ -428,10 +431,11 @@ function roundRect(x,y,w,h,r,fill,stroke){
   if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();}
 }
 
-function drawButtonBox(x,y,label,pressed,sz){
+function drawButtonBox(x,y,label,pressed,sz,color){
   sz=sz||2;
-  const bg=pressed?C.WH:C.BK, fg=pressed?C.BK:C.CY;
-  roundRect(x,y,BTN_W,BTN_H,4,bg,C.CY);
+  const c=color||C.CY;
+  const bg=pressed?C.WH:C.BK, fg=pressed?C.BK:c;
+  roundRect(x,y,BTN_W,BTN_H,4,bg,c);
   const tx=x+Math.floor((BTN_W-label.length*cw(sz))/2);
   const ty=y+Math.floor((BTN_H-ch(sz))/2);
   drawText(label,tx,ty,sz,fg,bg);
@@ -468,7 +472,7 @@ function drawWifiIcon(rssi,clients){
     ctx.beginPath();ctx.moveTo(cx-7,cy-11);ctx.lineTo(cx+7,cy-1);ctx.stroke();
     ctx.beginPath();ctx.moveTo(cx+7,cy-11);ctx.lineTo(cx-7,cy-1);ctx.stroke();
     setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
-    ctx.fillStyle='#848484';ctx.fillText('v4.4.1',82,4);
+    ctx.fillStyle='#848484';ctx.fillText('v4.5.0',82,4);
     return;
   }
   // dot
@@ -483,7 +487,7 @@ function drawWifiIcon(rssi,clients){
     ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,0);ctx.stroke();
   });
   setFont(1);ctx.fillStyle=C.CY;ctx.fillText(String(clients||0),116,20);
-  ctx.fillStyle='#848484';ctx.fillText('v4.4.1',82,4);
+  ctx.fillStyle='#848484';ctx.fillText('v4.5.0',82,4);
 }
 
 function drawButtons(d){
@@ -503,6 +507,11 @@ function drawButtons(d){
     }
     drawButtonBox(BTN_RIGHT_X,BTN_TOP_Y,xLbl,btn[2],2);
     drawButtonBox(BTN_RIGHT_X,BTN_BOT_Y,yLbl,btn[3],2);
+  }else if(d.state==='PAUSED'){
+    drawButtonBox(BTN_LEFT_X,BTN_TOP_Y,'CONT',btn[0],2,C.OR);
+    drawButtonBox(BTN_LEFT_X,BTN_BOT_Y,'HOME',btn[1],2);
+    roundRect(BTN_RIGHT_X,BTN_TOP_Y,BTN_W,BTN_H,4,C.BK,null);
+    roundRect(BTN_RIGHT_X,BTN_BOT_Y,BTN_W,BTN_H,4,C.BK,null);
   }else{
     let aLbl,bLbl;
     if(d.state==='IDLE'){aLbl=d.dist_xa_steps>0?'GO':'!CAL';bLbl=d.has_homed?'SET':'HOME';}
@@ -930,6 +939,24 @@ void abortAndIdle() {
   appState = IDLE;
 }
 
+void pauseAndWait() {
+  if (stepper->isRunning()) {
+    stepper->stopMove();
+    while (stepper->isRunning()) {}
+  }
+  disableMotor();
+  // hasHomed stays true so position counter remains valid for CONT
+  appState = PAUSED;
+}
+
+void resumePeeling() {
+  enableMotor();  // includes delay(500) for ENA- timing
+  stepper->setSpeedInMilliHz(speedUmToMilliHz(speed_um_s));
+  stepper->moveTo(dist_xa_steps);
+  peel_start_ms = millis();
+  appState = PEELING;
+}
+
 void startMoveToStart() {
   if (waitForTemp && !tempControlActive) {
     pidIntegral         = 0.0f;
@@ -1105,13 +1132,30 @@ void onButtonPress(int idx) {
     case MOVING:
     case MOVING_TO_START:
     case WAITING_FOR_TEMP:
-    case PEELING:
     case HOMING:
     case CAL_HOMING:
     case CAL_RUNNING:
-      if (idx == IDX_A) {          // A = UI stop button
+      if (idx == IDX_A) {          // A = UI stop button (full abort)
         hasHomed = false;
         abortAndIdle();
+      }
+      break;
+
+    case PEELING:
+      if (idx == IDX_A) {          // A = pause (STOP → CONT)
+        pauseAndWait();
+        updateButtons();
+      }
+      break;
+
+    case PAUSED:
+      if (idx == IDX_A) {          // A = CONT: resume from current position
+        resumePeeling();
+        updateButtons();
+      } else if (idx == IDX_B) {   // B = HOME: abandon peel, re-home
+        abortAndIdle();
+        startHoming();
+        updateButtons();
       }
       break;
   }
@@ -1159,11 +1203,11 @@ void onButtonRepeat(int idx) {
 // =============================================================================
 // Display helpers
 // =============================================================================
-void drawButtonBox(int16_t x, int16_t y, const char *label, bool pressed, uint8_t sz = 2) {
+void drawButtonBox(int16_t x, int16_t y, const char *label, bool pressed, uint8_t sz = 2, uint16_t color = ST77XX_CYAN) {
   uint16_t bg = pressed ? ST77XX_WHITE : ST77XX_BLACK;
-  uint16_t fg = pressed ? ST77XX_BLACK : ST77XX_CYAN;
+  uint16_t fg = pressed ? ST77XX_BLACK : color;
   tft.fillRoundRect(x, y, BTN_W, BTN_H, 4, bg);
-  tft.drawRoundRect(x, y, BTN_W, BTN_H, 4, ST77XX_CYAN);
+  tft.drawRoundRect(x, y, BTN_W, BTN_H, 4, color);
   tft.setTextSize(sz);
   tft.setTextColor(fg, bg);
   int len = strlen(label);
@@ -1194,6 +1238,11 @@ void updateButtons() {
     }
     drawButtonBox(BTN_RIGHT_X, BTN_TOP_Y, xLbl, btnDown[IDX_X]);
     drawButtonBox(BTN_RIGHT_X, BTN_BOT_Y, yLbl, btnDown[IDX_Y]);
+  } else if (appState == PAUSED) {
+    drawButtonBox(BTN_LEFT_X, BTN_TOP_Y, "CONT", btnDown[IDX_A], 2, ST77XX_ORANGE);
+    drawButtonBox(BTN_LEFT_X, BTN_BOT_Y, "HOME", btnDown[IDX_B]);
+    tft.fillRoundRect(BTN_RIGHT_X, BTN_TOP_Y, BTN_W, BTN_H, 4, ST77XX_BLACK);
+    tft.fillRoundRect(BTN_RIGHT_X, BTN_BOT_Y, BTN_W, BTN_H, 4, ST77XX_BLACK);
   } else {
     if (appState == IDLE) {
       strcpy(aLbl, dist_xa_steps > 0 ? "GO" : "!CAL");
@@ -1258,6 +1307,7 @@ void updateRunContent() {
     case MOVING_TO_START:  stateStr = "TO START";  stateCol = ST77XX_YELLOW; break;
     case WAITING_FOR_TEMP: stateStr = "WAIT TMP";  stateCol = ST77XX_YELLOW; break;
     case PEELING:          stateStr = "PEELING";   stateCol = ST77XX_YELLOW; break;
+    case PAUSED:           stateStr = "PAUSED";    stateCol = ST77XX_ORANGE; break;
     case HOMING:           stateStr = "HOMING";    stateCol = ST77XX_CYAN;   break;
     case CAL_HOMING:       stateStr = "CAL HOME";  stateCol = ST77XX_CYAN;   break;
     case CAL_RUNNING:      stateStr = "CAL RUN";   stateCol = ST77XX_CYAN;   break;
@@ -1779,7 +1829,7 @@ void initUI() {
   tft.setTextSize(1);
   tft.setTextColor(0x8410, ST77XX_BLACK); // dark gray
   tft.setCursor(82, 3);
-  tft.print("v4.4.1");
+  tft.print("v4.5.0");
 
   drawWifiIcon(0);
   updateRunContent();
@@ -2102,7 +2152,7 @@ void loop() {
       appState = IDLE;
       updateButtons();
     }
-  } else if (appState == MOVING || appState == MOVING_TO_START || appState == WAITING_FOR_TEMP || appState == PEELING) {
+  } else if (appState == MOVING || appState == MOVING_TO_START || appState == WAITING_FOR_TEMP || appState == PEELING || appState == PAUSED) {
     if (xNewPress || yNewPress) {               // new contact only — not a stale press
       if (yNewPress) {
         hasHomed = false;          // at far end — need to home before settings
@@ -2404,6 +2454,7 @@ void loop() {
         case MOVING_TO_START:  stateStr = "TO_START";   break;
         case WAITING_FOR_TEMP: stateStr = "WAIT_TEMP";  break;
         case PEELING:          stateStr = "PEELING";    break;
+        case PAUSED:           stateStr = "PAUSED";     break;
         case HOMING:           stateStr = "HOMING";     break;
         case SETTINGS:         stateStr = "SETTINGS";   break;
         case CAL_HOMING:       stateStr = "CAL_HOME";   break;
